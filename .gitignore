@@ -1,0 +1,13 @@
+# Go
+server/data/
+server/mu3ic-server
+
+# Node / Expo
+app/node_modules/
+app/.expo/
+app/dist/
+app/.env
+app/.env.local
+
+# Editors / OS
+.DS_Store
