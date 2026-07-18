@@ -2,7 +2,10 @@ module github.com/Austycartcartt/mu3ic/server
 
 go 1.26.5
 
-require github.com/jackc/pgx/v5 v5.10.0
+require (
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
+	github.com/jackc/pgx/v5 v5.10.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

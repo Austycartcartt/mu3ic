@@ -15,11 +15,12 @@ import (
 type Server struct {
 	store   *store.Store
 	storage library.Storage
+	cfg     library.Config
 	logger  *slog.Logger
 }
 
-func NewServer(st *store.Store, storage library.Storage, logger *slog.Logger) *Server {
-	return &Server{store: st, storage: storage, logger: logger}
+func NewServer(st *store.Store, storage library.Storage, cfg library.Config, logger *slog.Logger) *Server {
+	return &Server{store: st, storage: storage, cfg: cfg, logger: logger}
 }
 
 // Router builds the HTTP handler tree. Go 1.22+'s http.ServeMux supports
@@ -31,6 +32,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /api/tracks", s.handleUpload)
 	mux.HandleFunc("GET /api/tracks", s.handleList)
 	mux.HandleFunc("GET /api/tracks/{id}/stream", s.handleStream)
+	mux.HandleFunc("GET /api/tracks/{id}/artwork", s.handleArtwork)
 	return s.withLogging(mux)
 }
 

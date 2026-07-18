@@ -5,9 +5,14 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export type Track = {
   id: number;
-  filename: string;
+  original_filename: string;
   size: number;
-  created_at: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration_seconds: number | null;
+  hasArtwork: boolean;
+  uploaded_at: string;
 };
 
 function apiUrl(path: string): string {
@@ -27,6 +32,32 @@ export async function getTracks(): Promise<Track[]> {
   return res.json();
 }
 
+// uploadTrack posts a single picked file as multipart/form-data under the
+// "audio" field, matching the server's POST /api/tracks contract. Callers
+// upload one file per request and loop for albums (see upload.tsx) —
+// no client-side batching/parallelism per the Phase 2 spec.
+export async function uploadTrack(uri: string, filename: string, mimeType: string): Promise<Track> {
+  const form = new FormData();
+  // React Native's FormData accepts this { uri, name, type } shape for
+  // file-like values; it isn't expressible in the standard FormData type,
+  // hence the cast.
+  form.append('audio', { uri, name: filename, type: mimeType } as unknown as Blob);
+
+  const res = await fetch(apiUrl('/api/tracks'), {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `upload failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export function streamUrl(id: number): string {
   return apiUrl(`/api/tracks/${id}/stream`);
+}
+
+export function artworkUrl(id: number): string {
+  return apiUrl(`/api/tracks/${id}/artwork`);
 }

@@ -17,6 +17,7 @@ Because learning is a goal, prefer explicit, readable code over clever abstracti
 These are non-negotiable constraints for all generated code:
 
 1. **Latest stable versions.** Go 1.26.x for the backend. For the frontend, use whatever `npx create-expo-app@latest` produces (current stable Expo SDK and its bundled React Native version) — do not pin to an older SDK.
+   - **Exception (2026-07-13):** `app/` is currently pinned to Expo SDK 54 instead of latest (was SDK 57) because Expo Go on the App Store only supports SDK 54 and the dev-build alternative requires a paid Apple Developer account. Do not bump back to latest without confirming Expo Go / Apple Developer account status first.
 2. **Idiomatic best practices.** Follow standard Go conventions (Effective Go, standard project layout) and current Expo/React Native conventions (Expo Router, TypeScript, functional components with hooks).
 3. **Standard library first.** Do not add a dependency until the standard library demonstrably falls short. Every third-party package must be justified. The approved dependency list below is exhaustive for the initial scaffold — do not add anything beyond it without flagging it.
 

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Link, Stack, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,31 +12,35 @@ export default function TrackListScreen() {
   const [error, setError] = useState<string | null>(null);
   const { play, playingId } = usePlayer();
 
-  // Fetch-on-mount effect, following React's documented pattern
+  // Re-fetches every time this screen gains focus (including on return
+  // from the upload screen), following React's documented fetch pattern
   // (https://react.dev/learn/synchronizing-with-effects#fetching-data):
   // the `ignore` flag guards against setting state from a stale request
-  // if the component unmounts before it resolves.
-  useEffect(() => {
-    let ignore = false;
-    getTracks()
-      .then((data) => {
-        if (!ignore) {
-          setTracks(data);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
-    return () => {
-      ignore = true;
-    };
-  }, []);
+  // if the screen loses focus again before it resolves.
+  useFocusEffect(
+    useCallback(() => {
+      let ignore = false;
+      getTracks()
+        .then((data) => {
+          if (!ignore) {
+            setTracks(data);
+            setError(null);
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        });
+      return () => {
+        ignore = true;
+      };
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.container}>
+      <Stack.Screen options={{ headerRight: () => <Link href="/upload">Upload</Link> }} />
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>

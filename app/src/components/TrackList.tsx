@@ -1,6 +1,6 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Track } from '@/api/client';
+import { artworkUrl, type Track } from '@/api/client';
 
 type Props = {
   tracks: Track[];
@@ -14,15 +14,37 @@ export function TrackList({ tracks, playingId, onPress }: Props) {
       data={tracks}
       keyExtractor={(track) => String(track.id)}
       contentContainerStyle={styles.list}
-      renderItem={({ item }) => (
-        <Pressable style={styles.row} onPress={() => onPress(item)}>
-          <View style={styles.rowText}>
-            <Text style={styles.filename}>{item.filename}</Text>
-          </View>
-          {playingId === item.id && <Text style={styles.playing}>▶</Text>}
-        </Pressable>
-      )}
-      ListEmptyComponent={<Text style={styles.empty}>No tracks yet. Upload one via curl — see server/README.md.</Text>}
+      renderItem={({ item }) => {
+        // "Unknown" is a real, always-present value now (server default),
+        // not an empty string — filter it out explicitly rather than
+        // relying on falsiness, or it'd render as a literal "Unknown".
+        const subtitle = [item.artist, item.album]
+          .filter((v) => v !== 'Unknown')
+          .join(' — ');
+        return (
+          <Pressable style={styles.row} onPress={() => onPress(item)}>
+            {item.hasArtwork ? (
+              // React Native's built-in Image caching is enough here — no
+              // image-caching library per the Phase 2 spec.
+              <Image source={{ uri: artworkUrl(item.id) }} style={styles.artwork} />
+            ) : (
+              <View style={[styles.artwork, styles.artworkPlaceholder]} />
+            )}
+            <View style={styles.rowText}>
+              <Text style={styles.title} numberOfLines={1}>
+                {item.title}
+              </Text>
+              {subtitle !== '' && (
+                <Text style={styles.subtitle} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              )}
+            </View>
+            {playingId === item.id && <Text style={styles.playing}>▶</Text>}
+          </Pressable>
+        );
+      }}
+      ListEmptyComponent={<Text style={styles.empty}>No tracks yet. Tap Upload to add some.</Text>}
     />
   );
 }
@@ -38,11 +60,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#ccc',
   },
+  artwork: {
+    width: 44,
+    height: 44,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  artworkPlaceholder: {
+    backgroundColor: '#ddd',
+  },
   rowText: {
     flex: 1,
   },
-  filename: {
+  title: {
     fontSize: 16,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
   },
   playing: {
     fontSize: 16,

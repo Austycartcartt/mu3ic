@@ -35,7 +35,7 @@ That's it — migrations in `migrations/` are applied automatically on startup. 
 curl localhost:8080/api/health
 
 # upload a file
-curl -F "file=@/path/to/song.mp3" localhost:8080/api/tracks
+curl -F "audio=@/path/to/song.mp3;type=audio/mpeg" localhost:8080/api/tracks
 
 # list tracks
 curl localhost:8080/api/tracks

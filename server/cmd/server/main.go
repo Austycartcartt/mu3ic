@@ -60,7 +60,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := api.NewServer(store.New(db), storage, logger)
+	cfg := library.Config{LibraryDir: dataDir}
+	if err := os.MkdirAll(cfg.TempDir(), 0o755); err != nil {
+		logger.Error("creating temp dir", "error", err)
+		os.Exit(1)
+	}
+
+	srv := api.NewServer(store.New(db), storage, cfg, logger)
 
 	httpServer := &http.Server{
 		Addr:    "0.0.0.0:" + port,

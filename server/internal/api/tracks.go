@@ -31,7 +31,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.storage.Open(track.ID, track.Filename)
+	file, err := s.storage.Open(track.StorageKey)
 	if err != nil {
 		s.logger.Error("opening track file", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to open track")
@@ -46,5 +46,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.ServeContent(w, r, track.Filename, info.ModTime(), file)
+	// Content-Type comes from the DB, not from sniffing the filename —
+	// storage keys are bare UUIDs with no extension for ServeContent to
+	// go on, and the DB value is authoritative anyway (resolved once, at
+	// ingest time, from the multipart header + content sniffing).
+	w.Header().Set("Content-Type", track.MimeType)
+	http.ServeContent(w, r, "", info.ModTime(), file)
 }
