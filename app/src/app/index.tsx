@@ -1,16 +1,18 @@
-import { Link, Stack, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getTracks, streamUrl, type Track } from '@/api/client';
+import { Header } from '@/components/Header';
 import { TrackList } from '@/components/TrackList';
 import { usePlayer } from '@/hooks/usePlayer';
+import { theme } from '@/theme/theme';
 
 export default function TrackListScreen() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { play, playingId } = usePlayer();
+  const { play, playingTrack } = usePlayer();
 
   // Re-fetches every time this screen gains focus (including on return
   // from the upload screen), following React's documented fetch pattern
@@ -40,7 +42,7 @@ export default function TrackListScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ headerRight: () => <Link href="/upload">Upload</Link> }} />
+      <Header title="Library" action={{ label: 'Upload', onPress: () => router.push('/upload') }} />
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>
@@ -48,8 +50,8 @@ export default function TrackListScreen() {
       )}
       <TrackList
         tracks={tracks}
-        playingId={playingId}
-        onPress={(track) => play(track.id, streamUrl(track.id))}
+        playingId={playingTrack?.id ?? null}
+        onPress={(track) => play(track, streamUrl(track.id))}
       />
     </SafeAreaView>
   );
@@ -60,10 +62,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   errorBanner: {
-    padding: 12,
-    backgroundColor: '#fdd',
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.dangerBackground,
   },
   errorText: {
-    color: '#900',
+    color: theme.colors.danger,
   },
 });

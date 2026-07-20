@@ -4,8 +4,16 @@ A self-hosted music streaming app. See [PROJECT.md](PROJECT.md) for the full spe
 
 - [`server/`](server/README.md) — Go backend
 - [`app/`](app/README.md) — Expo (React Native) client
+- [`docs/STATUS.md`](docs/STATUS.md) — current build phase and what's next
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — architecture decisions log
 
 ## Quick start
+
+```bash
+./start.sh   # Postgres, API on :8080, and the Expo client together
+```
+
+Or run each piece separately:
 
 ```bash
 docker compose up -d          # Postgres

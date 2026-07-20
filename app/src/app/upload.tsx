@@ -5,6 +5,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { uploadTrack } from '@/api/client';
+import { Header } from '@/components/Header';
+import { theme } from '@/theme/theme';
 
 type Status = 'idle' | 'uploading' | 'done';
 
@@ -56,33 +58,36 @@ export default function UploadScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {status === 'idle' && (
-        <Pressable style={styles.button} onPress={pickAndUpload}>
-          <Text style={styles.buttonText}>Choose audio files</Text>
-        </Pressable>
-      )}
-
-      {status === 'uploading' && (
-        <Text style={styles.status}>
-          Uploading {current} of {total} — {currentName}
-        </Text>
-      )}
-
-      {status === 'done' && (
-        <View>
-          <Text style={styles.status}>
-            {total - failures.length} uploaded, {failures.length} failed
-          </Text>
-          {failures.map((name) => (
-            <Text key={name} style={styles.failure}>
-              {name}
-            </Text>
-          ))}
+      <Header title="Upload" />
+      <View style={styles.content}>
+        {status === 'idle' && (
           <Pressable style={styles.button} onPress={pickAndUpload}>
-            <Text style={styles.buttonText}>Upload more</Text>
+            <Text style={styles.buttonText}>Choose audio files</Text>
           </Pressable>
-        </View>
-      )}
+        )}
+
+        {status === 'uploading' && (
+          <Text style={styles.status}>
+            Uploading {current} of {total} — {currentName}
+          </Text>
+        )}
+
+        {status === 'done' && (
+          <View>
+            <Text style={styles.status}>
+              {total - failures.length} uploaded, {failures.length} failed
+            </Text>
+            {failures.map((name) => (
+              <Text key={name} style={styles.failure}>
+                {name}
+              </Text>
+            ))}
+            <Pressable style={styles.button} onPress={pickAndUpload}>
+              <Text style={styles.buttonText}>Upload more</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -90,29 +95,32 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+  },
+  content: {
+    flex: 1,
+    padding: theme.spacing.lg,
     justifyContent: 'center',
     alignItems: 'center',
   },
   button: {
-    backgroundColor: '#222',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginTop: 16,
+    backgroundColor: theme.colors.accent,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.xl,
+    borderRadius: theme.radii.md,
+    marginTop: theme.spacing.lg,
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: theme.colors.onAccent,
+    fontSize: theme.fontSize.lg,
   },
   status: {
-    fontSize: 16,
+    fontSize: theme.fontSize.lg,
     textAlign: 'center',
   },
   failure: {
-    fontSize: 13,
-    color: '#900',
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.danger,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: theme.spacing.xs,
   },
 });

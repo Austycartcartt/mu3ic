@@ -1,6 +1,7 @@
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { artworkUrl, type Track } from '@/api/client';
+import { theme } from '@/theme/theme';
 
 type Props = {
   tracks: Track[];
@@ -51,41 +52,41 @@ export function TrackList({ tracks, playingId, onPress }: Props) {
 
 const styles = StyleSheet.create({
   list: {
-    padding: 16,
+    padding: theme.spacing.lg,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: theme.spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ccc',
+    borderBottomColor: theme.colors.border,
   },
   artwork: {
     width: 44,
     height: 44,
-    borderRadius: 4,
-    marginRight: 12,
+    borderRadius: theme.radii.sm,
+    marginRight: theme.spacing.md,
   },
   artworkPlaceholder: {
-    backgroundColor: '#ddd',
+    backgroundColor: theme.colors.surface,
   },
   rowText: {
     flex: 1,
   },
   title: {
-    fontSize: 16,
+    fontSize: theme.fontSize.lg,
   },
   subtitle: {
-    fontSize: 13,
-    color: '#666',
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   playing: {
-    fontSize: 16,
+    fontSize: theme.fontSize.lg,
   },
   empty: {
-    marginTop: 32,
+    marginTop: theme.spacing.xl,
     textAlign: 'center',
-    color: '#666',
+    color: theme.colors.textMuted,
   },
 });
