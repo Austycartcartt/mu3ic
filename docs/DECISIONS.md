@@ -71,3 +71,43 @@ Append-only log. Add a new entry per decision; don't edit past entries except to
 **Rationale:** The upload endpoint is the natural choke point where every track passes exactly once. Flow: receive multipart → buffer to temp file (`os.CreateTemp` on the same volume as the library) → extract tags with `dhowden/tag` (needs an `io.ReadSeeker`, so a temp file is required) → `os.Rename` into the library under its UUID key (atomic on the same filesystem, no half-written files) → insert row. Fallback chain for missing tags: title from tag, else original filename minus extension; artist/album default to `"Unknown"`.
 
 **Trade-offs:** Upload handler does more work per request (tag parsing adds latency, negligible at personal scale). Requires the temp dir to be on the same filesystem as the library to keep the rename atomic. Replaces the previously planned standalone metadata phase, so the build order shifted.
+
+---
+
+## Client-side filename-heuristic upload preview, explicit override wins
+
+**Date:** 2026-08-21 · **Category:** Upload UX · **Status:** Decided
+
+**Rationale:** Real-world filenames like `Inferno-01-001-Boards of Canada-Introit.wav` or `Aeikus - Going Deeper, Vol. 7 (Free Download) - 20 Cataracta.m4a` often carry better artist/album/title information than missing or wrong embedded tags, but the server's filename fallback (`ingest.go`) only ever used the whole filename as a title. `app/src/utils/parseFilename.ts` parses a small set of known dash-delimited patterns (plus a generic 2/3-token fallback) into an Artist/Album/Title guess, purely from the filename string — no audio bytes or server round-trip needed. The upload screen (`app/src/app/upload.tsx`) shows this guess in an editable preview before anything uploads; on confirm, the (possibly hand-edited) values are sent as optional `title`/`artist`/`album` multipart fields, and `library.Overrides` (`ingest.go`) applies any non-empty one on top of the existing tag-extraction/fallback chain — i.e. an explicit override always wins, even over a real embedded tag.
+
+**Trade-offs:** The parser only pre-fills a field when it's confident in the match, specifically so an unrecognized filename doesn't send a bogus override that clobbers a good embedded tag — but a confident *wrong* guess (e.g. a filename that happens to fit the pattern by coincidence) will still silently override real tag data unless the user notices and edits it in the preview. The parser is a small heuristic, not a general filename grammar; it won't handle every naming convention, and the editable preview is the intended correctness backstop, not full automation.
+
+---
+
+## Folder upload is web-only; native keeps flat multi-select
+
+**Date:** 2026-08-21 · **Category:** Upload UX · **Status:** Decided
+
+**Rationale:** Bulk-picking a whole folder needs a directory-tree picker. Browsers expose one for free via the non-standard `webkitdirectory` input attribute (`app/src/app/upload.tsx`'s `pickFolderWeb`), with no new dependency. Expo has no built-in equivalent for iOS/Android — Android would need Storage Access Framework tree-picking and iOS has no comparable API without custom native code, both out of proportion to the ask. Native keeps today's `expo-document-picker` flat multi-file picker, which already lets a user select many files from a folder in one dialog, just without nested subfolders auto-included.
+
+**Trade-offs:** Native users importing a deeply nested folder tree must flatten it themselves (drag all files into the picker, or pick subfolders one at a time) rather than pointing at the top-level folder. Revisit if this proves painful enough to justify a native module.
+
+---
+
+## Defer external album/artist dataset lookup (e.g. MusicBrainz)
+
+**Date:** 2026-08-21 · **Category:** Upload UX · **Status:** Decided
+
+**Rationale:** Comparing uploaded filenames against a downloadable/online music database could improve metadata accuracy beyond filename parsing, but it means a new network dependency, fuzzy-matching logic, and (for an offline dataset) meaningful storage — a large scope increase relative to the filename-parsing preview this phase actually needed. Shipped the heuristic parser + editable preview instead (see above).
+
+**Trade-offs:** Metadata quality is capped by what the filename itself encodes; genuinely ambiguous or sparse filenames still need manual entry. Revisit as a later phase if manual cleanup proves too frequent.
+
+---
+
+## Add album_artist, distinct from each track's own artist
+
+**Date:** 2026-08-23 · **Category:** Database / Upload UX · **Status:** Decided
+
+**Rationale:** `ListAlbums` grouped by `(album, artist)`. For a various-artists compilation — one album, a different artist per track, e.g. from the filename-parsing preview above — that produced one album row per distinct track artist instead of one row for the whole album (reported as: uploading "Going Deeper, Vol. 7" and seeing it listed multiple times). Grouping by `album` alone was rejected: it can't tell that case apart from two genuinely different albums that happen to share an exact title by different single artists (already covered by an existing test, `TestHandleListAlbums_SameTitleDifferentArtist`) — both look identical as "one album title, multiple artists" without more information. Added an `album_artist` column (`004_album_artist.sql`), mirroring the ALBUMARTIST/TPE2 tag real files use for exactly this: `ListAlbums`/`ListTracksByAlbum` now group/filter on `(album, album_artist)`. `store.InsertTrack` defaults an unset `album_artist` to that track's own artist, so ordinary single-artist albums (and the title-collision test) keep working unchanged — only an explicit album artist (an ALBUMARTIST tag, or the new optional "Album Artist" field on the upload preview screen, applied to every file in a batch) collapses a compilation into one row.
+
+**Trade-offs:** A various-artists compilation uploaded without ALBUMARTIST tags still needs the user to fill in the batch-level "Album Artist" field (e.g. "Various Artists") for it to group correctly — there's no way to infer it from filenames alone. Existing already-uploaded rows were backfilled to `album_artist = artist` in the same migration, so nothing already in the library needs re-uploading to keep working as before.

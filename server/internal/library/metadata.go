@@ -14,6 +14,7 @@ type Metadata struct {
 	Title       string
 	Artist      string
 	Album       string
+	AlbumArtist string // e.g. the ID3 TPE2 frame; "" if untagged — distinct from Artist so a various-artists compilation can share one album across differing track artists
 	TrackNumber int
 	Year        int
 	Artwork     *Artwork // nil if the file has no usable embedded picture
@@ -37,10 +38,11 @@ func ExtractMetadata(r io.ReadSeeker) (Metadata, error) {
 	}
 
 	md := Metadata{
-		Title:  t.Title(),
-		Artist: t.Artist(),
-		Album:  t.Album(),
-		Year:   t.Year(),
+		Title:       t.Title(),
+		Artist:      t.Artist(),
+		Album:       t.Album(),
+		AlbumArtist: t.AlbumArtist(),
+		Year:        t.Year(),
 	}
 	if trackNum, _ := t.Track(); trackNum > 0 {
 		md.TrackNumber = trackNum

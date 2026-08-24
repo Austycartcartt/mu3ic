@@ -1,0 +1,67 @@
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { getAlbumTracks, streamUrl, type Track } from '@/api/client';
+import { Header } from '@/components/Header';
+import { TrackList } from '@/components/TrackList';
+import { usePlayer } from '@/hooks/usePlayer';
+import { theme } from '@/theme/theme';
+
+export default function AlbumTracksScreen() {
+  const { name, artist } = useLocalSearchParams<{ name: string; artist?: string }>();
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const { play, playingTrack } = usePlayer();
+
+  useFocusEffect(
+    useCallback(() => {
+      let ignore = false;
+      getAlbumTracks(name, artist)
+        .then((data) => {
+          if (!ignore) {
+            setTracks(data);
+            setError(null);
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        });
+      return () => {
+        ignore = true;
+      };
+    }, [name, artist])
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <Header title={name} />
+      {error && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+      <TrackList
+        tracks={tracks}
+        playingId={playingTrack?.id ?? null}
+        onPress={(track) => play(track, streamUrl(track.id))}
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  errorBanner: {
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.dangerBackground,
+  },
+  errorText: {
+    color: theme.colors.danger,
+  },
+});

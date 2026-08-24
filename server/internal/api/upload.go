@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -18,6 +17,11 @@ const maxUploadSize = 200 << 20 // 200 MB, covers long FLAC files
 // itself only deals with HTTP/multipart concerns (size limits, field
 // name, content-type sniffing); everything about turning a file on disk
 // into a library track lives in IngestFile.
+//
+// Besides the required "audio" part, it accepts optional "title"/
+// "artist"/"album"/"album_artist" text parts — the upload preview
+// screen's filename-parsed, hand-editable guess — passed through to
+// IngestFile as overrides.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
@@ -27,55 +31,105 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	part, err := findPart(mr, "audio")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	defer part.Close()
+	var (
+		tmpPath          string
+		originalFilename string
+		declared         string
+		overrides        library.Overrides
+		sawAudio         bool
+	)
+	defer func() {
+		if tmpPath != "" {
+			os.Remove(tmpPath) // best-effort; no-op once IngestFile renames the file away on success
+		}
+	}()
 
-	declared := part.Header.Get("Content-Type")
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid multipart form")
+			return
+		}
 
-	var sniffBuf [512]byte
-	n, err := io.ReadFull(part, sniffBuf[:])
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		writeUploadReadError(w, err)
-		return
-	}
-	sniffed := http.DetectContentType(sniffBuf[:n])
+		switch part.FormName() {
+		case "audio":
+			sawAudio = true
+			originalFilename = part.FileName()
+			declared = part.Header.Get("Content-Type")
 
-	if !strings.HasPrefix(declared, "audio/") && !strings.HasPrefix(sniffed, "audio/") {
-		writeJSONError(w, http.StatusBadRequest, "file does not appear to be audio")
+			var sniffBuf [512]byte
+			n, err := io.ReadFull(part, sniffBuf[:])
+			if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+				part.Close()
+				writeUploadReadError(w, err)
+				return
+			}
+			sniffed := http.DetectContentType(sniffBuf[:n])
+
+			if !strings.HasPrefix(declared, "audio/") && !strings.HasPrefix(sniffed, "audio/") {
+				part.Close()
+				writeJSONError(w, http.StatusBadRequest, "file does not appear to be audio")
+				return
+			}
+
+			tmpFile, err := os.CreateTemp(s.cfg.TempDir(), "upload-*")
+			if err != nil {
+				part.Close()
+				s.logger.Error("creating temp file", "error", err)
+				writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
+				return
+			}
+			tmpPath = tmpFile.Name()
+
+			if _, err := tmpFile.Write(sniffBuf[:n]); err != nil {
+				tmpFile.Close()
+				part.Close()
+				s.logger.Error("writing temp file", "error", err)
+				writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
+				return
+			}
+			if _, err := io.Copy(tmpFile, part); err != nil {
+				tmpFile.Close()
+				part.Close()
+				writeUploadReadError(w, err)
+				return
+			}
+			if err := tmpFile.Close(); err != nil {
+				part.Close()
+				s.logger.Error("closing temp file", "error", err)
+				writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
+				return
+			}
+		case "title", "artist", "album", "album_artist":
+			value, err := io.ReadAll(part)
+			if err != nil {
+				part.Close()
+				writeUploadReadError(w, err)
+				return
+			}
+			switch part.FormName() {
+			case "title":
+				overrides.Title = string(value)
+			case "artist":
+				overrides.Artist = string(value)
+			case "album":
+				overrides.Album = string(value)
+			case "album_artist":
+				overrides.AlbumArtist = string(value)
+			}
+		}
+		part.Close()
+	}
+
+	if !sawAudio {
+		writeJSONError(w, http.StatusBadRequest, `missing "audio" field`)
 		return
 	}
 
-	tmpFile, err := os.CreateTemp(s.cfg.TempDir(), "upload-*")
-	if err != nil {
-		s.logger.Error("creating temp file", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
-		return
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) // best-effort; no-op once IngestFile renames the file away on success
-
-	if _, err := tmpFile.Write(sniffBuf[:n]); err != nil {
-		tmpFile.Close()
-		s.logger.Error("writing temp file", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
-		return
-	}
-	if _, err := io.Copy(tmpFile, part); err != nil {
-		tmpFile.Close()
-		writeUploadReadError(w, err)
-		return
-	}
-	if err := tmpFile.Close(); err != nil {
-		s.logger.Error("closing temp file", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
-		return
-	}
-
-	track, err := library.IngestFile(r.Context(), s.store, s.cfg, tmpPath, part.FileName(), declared)
+	track, err := library.IngestFile(r.Context(), s.store, s.cfg, tmpPath, originalFilename, declared, overrides)
 	if err != nil {
 		s.logger.Error("ingesting file", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save track")
@@ -83,24 +137,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, track)
-}
-
-// findPart scans a multipart request for the first part with the given
-// field name, closing (and discarding) any others along the way.
-func findPart(mr *multipart.Reader, fieldName string) (*multipart.Part, error) {
-	for {
-		p, err := mr.NextPart()
-		if errors.Is(err, io.EOF) {
-			return nil, errors.New(`missing "` + fieldName + `" field`)
-		}
-		if err != nil {
-			return nil, errors.New("invalid multipart form")
-		}
-		if p.FormName() == fieldName {
-			return p, nil
-		}
-		p.Close()
-	}
 }
 
 // writeUploadReadError distinguishes a size-limit violation (413) from

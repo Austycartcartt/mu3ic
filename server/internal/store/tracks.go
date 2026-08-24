@@ -22,6 +22,7 @@ type Track struct {
 	Title            string    `json:"title"`
 	Artist           string    `json:"artist"`
 	Album            string    `json:"album"`
+	AlbumArtist      string    `json:"-"` // internal grouping key for ListAlbums; see store.AlbumSummary
 	DurationSeconds  *int      `json:"duration_seconds"` // always nil this phase; TODO(phase-later): decode duration
 	ArtworkExt       string    `json:"-"`
 	HasArtwork       bool      `json:"hasArtwork"`
@@ -39,6 +40,7 @@ type NewTrack struct {
 	Title            string
 	Artist           string
 	Album            string
+	AlbumArtist      string // "" means unset — InsertTrack falls back to Artist
 	ArtworkExt       string // "" if the track has no artwork
 }
 
@@ -54,6 +56,7 @@ type dbTrack struct {
 	Title            string
 	Artist           string
 	Album            string
+	AlbumArtist      string
 	DurationSeconds  sql.NullInt32
 	ArtworkExt       sql.NullString
 	UploadedAt       time.Time
@@ -74,6 +77,7 @@ func (d dbTrack) toTrack() Track {
 		Title:            d.Title,
 		Artist:           d.Artist,
 		Album:            d.Album,
+		AlbumArtist:      d.AlbumArtist,
 		DurationSeconds:  duration,
 		ArtworkExt:       d.ArtworkExt.String,
 		HasArtwork:       d.ArtworkExt.Valid && d.ArtworkExt.String != "",
@@ -81,12 +85,12 @@ func (d dbTrack) toTrack() Track {
 	}
 }
 
-const trackColumns = `id, storage_key, mime_type, original_filename, size, title, artist, album, duration_seconds, artwork_ext, uploaded_at`
+const trackColumns = `id, storage_key, mime_type, original_filename, size, title, artist, album, album_artist, duration_seconds, artwork_ext, uploaded_at`
 
 func scanTrack(row interface{ Scan(...any) error }) (Track, error) {
 	var d dbTrack
 	err := row.Scan(&d.ID, &d.StorageKey, &d.MimeType, &d.OriginalFilename, &d.Size,
-		&d.Title, &d.Artist, &d.Album, &d.DurationSeconds, &d.ArtworkExt, &d.UploadedAt)
+		&d.Title, &d.Artist, &d.Album, &d.AlbumArtist, &d.DurationSeconds, &d.ArtworkExt, &d.UploadedAt)
 	if err != nil {
 		return Track{}, err
 	}
@@ -97,12 +101,21 @@ func scanTrack(row interface{ Scan(...any) error }) (Track, error) {
 // type, and extracted (or fallback) metadata. The id is assigned by
 // Postgres (BIGSERIAL), so there's no need to generate one in Go.
 func (s *Store) InsertTrack(ctx context.Context, nt NewTrack) (Track, error) {
+	// An unset album artist defaults to the track's own artist, so a
+	// normal (non-compilation) album keeps grouping the way it always
+	// has — only an explicit album artist (tag or override) collapses a
+	// various-artists album into one row. See migrations/004_album_artist.sql.
+	albumArtist := nt.AlbumArtist
+	if albumArtist == "" {
+		albumArtist = nt.Artist
+	}
+
 	row := s.db.QueryRowContext(ctx,
-		`INSERT INTO tracks (storage_key, mime_type, original_filename, size, title, artist, album, artwork_ext)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO tracks (storage_key, mime_type, original_filename, size, title, artist, album, album_artist, artwork_ext)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING `+trackColumns,
 		nt.StorageKey, nt.MimeType, nt.OriginalFilename, nt.Size,
-		nt.Title, nt.Artist, nt.Album, nullableString(nt.ArtworkExt),
+		nt.Title, nt.Artist, nt.Album, albumArtist, nullableString(nt.ArtworkExt),
 	)
 	track, err := scanTrack(row)
 	if err != nil {

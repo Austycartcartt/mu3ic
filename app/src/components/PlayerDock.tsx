@@ -12,9 +12,16 @@ function formatTime(seconds: number): string {
   return `${minutes}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Fixed dock, not a scroll-flow card — stays mounted at the bottom of the
-// app (see _layout.tsx) so it persists across screen navigation.
-export function PlayerDock() {
+type Props = {
+  // False when something below this dock already accounts for the bottom
+  // safe area (e.g. the tab bar in (tabs)/_layout.tsx) — otherwise the
+  // inset would be applied twice.
+  withSafeAreaInset?: boolean;
+};
+
+// Fixed dock, not a scroll-flow card — stays mounted persistently so it
+// survives screen navigation (see (tabs)/_layout.tsx and upload.tsx).
+export function PlayerDock({ withSafeAreaInset = true }: Props) {
   const { playingTrack, isPlaying, currentTime, duration, togglePlayPause, seek } = usePlayer();
   const insets = useSafeAreaInsets();
   const [trackWidth, setTrackWidth] = useState(0);
@@ -23,6 +30,7 @@ export function PlayerDock() {
     return null;
   }
 
+  const bottomInset = withSafeAreaInset ? insets.bottom : 0;
   const progress = duration > 0 ? currentTime / duration : 0;
 
   function handleLayout(event: LayoutChangeEvent) {
@@ -38,7 +46,7 @@ export function PlayerDock() {
   const subtitle = playingTrack.artist !== 'Unknown' ? playingTrack.artist : '';
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + theme.spacing.sm }]}>
+    <View style={[styles.container, { paddingBottom: bottomInset + theme.spacing.sm }]}>
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>
           {playingTrack.title}

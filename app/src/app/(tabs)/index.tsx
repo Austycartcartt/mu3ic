@@ -9,7 +9,7 @@ import { TrackList } from '@/components/TrackList';
 import { usePlayer } from '@/hooks/usePlayer';
 import { theme } from '@/theme/theme';
 
-export default function TrackListScreen() {
+export default function SongsScreen() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { play, playingTrack } = usePlayer();
@@ -42,7 +42,7 @@ export default function TrackListScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Header title="Library" action={{ label: 'Upload', onPress: () => router.push('/upload') }} />
+      <Header title="Songs" action={{ label: 'Upload', onPress: () => router.push('/upload') }} />
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>

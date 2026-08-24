@@ -33,7 +33,11 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/tracks", s.handleList)
 	mux.HandleFunc("GET /api/tracks/{id}/stream", s.handleStream)
 	mux.HandleFunc("GET /api/tracks/{id}/artwork", s.handleArtwork)
-	return s.withLogging(mux)
+	mux.HandleFunc("GET /api/artists", s.handleListArtists)
+	mux.HandleFunc("GET /api/artists/{name}/tracks", s.handleArtistTracks)
+	mux.HandleFunc("GET /api/albums", s.handleListAlbums)
+	mux.HandleFunc("GET /api/albums/{name}/tracks", s.handleAlbumTracks)
+	return s.withLogging(s.withCORS(mux))
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
@@ -41,6 +45,25 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		s.logger.Info("request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+	})
+}
+
+// withCORS allows the Expo web client (served from a different origin/port
+// than the API) to call this server from the browser. There's no
+// auth/cookies involved, so reflecting any Origin is safe here.
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-07-19
+Last updated: 2026-08-21
 
 One-line state of the project: which phase is active, what's done, what's next. Update this whenever a phase changes status — it's the first thing to read to get oriented.
 
@@ -14,7 +14,7 @@ One-line state of the project: which phase is active, what's done, what's next. 
 | 4 | [Background Playback & Lock-Screen Controls](PHASE-4-background-playback.md) | Planned | Requires a custom Expo dev build (no Expo Go) |
 | 5 | [Authentication](PHASE-5-authentication.md) | **In Progress** | Started 2026-07-17 |
 | 6 | [Playlists & Search](PHASE-6-playlists-search.md) | Planned | Not yet scoped |
-| 7 | [Bulk Import (Watch Folder + rclone)](PHASE-7-bulk-import.md) | Planned | Not yet scoped |
+| 7 | [Bulk Import (Watch Folder + rclone)](PHASE-7-bulk-import.md) | **In Progress** | Smart filename parsing + folder upload shipped 2026-08-21; watch-folder/rclone not yet scoped |
 | 8 | [Deployment](PHASE-8-deployment.md) | Planned | Not yet scoped |
 | 9 | [Transcoding (Deferred)](PHASE-9-transcoding.md) | Planned | Only build if adaptive bitrate becomes necessary |
 

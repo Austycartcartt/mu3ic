@@ -91,7 +91,7 @@ func TestIngestFile_TaggedWithArtwork(t *testing.T) {
 	cfg := newTestConfig(t)
 	srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg")
+	track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -134,7 +134,7 @@ func TestIngestFile_Untagged(t *testing.T) {
 	cfg := newTestConfig(t)
 	srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, srcPath, "untagged.mp3", "audio/mpeg")
+	track, err := IngestFile(context.Background(), st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -154,6 +154,111 @@ func TestIngestFile_Untagged(t *testing.T) {
 	}
 }
 
+func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
+	st, db := testStore(t)
+
+	t.Run("full override replaces tag data", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+			Title:  "Overridden Title",
+			Artist: "Overridden Artist",
+			Album:  "Overridden Album",
+		})
+		if err != nil {
+			t.Fatalf("IngestFile() error = %v", err)
+		}
+		cleanupTrack(t, db, track.ID)
+
+		if track.Title != "Overridden Title" {
+			t.Errorf("Title = %q, want %q", track.Title, "Overridden Title")
+		}
+		if track.Artist != "Overridden Artist" {
+			t.Errorf("Artist = %q, want %q", track.Artist, "Overridden Artist")
+		}
+		if track.Album != "Overridden Album" {
+			t.Errorf("Album = %q, want %q", track.Album, "Overridden Album")
+		}
+	})
+
+	t.Run("partial override only replaces the set field", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+			Artist: "Overridden Artist",
+		})
+		if err != nil {
+			t.Fatalf("IngestFile() error = %v", err)
+		}
+		cleanupTrack(t, db, track.ID)
+
+		if track.Title != "Test Title" {
+			t.Errorf("Title = %q, want %q (untouched)", track.Title, "Test Title")
+		}
+		if track.Artist != "Overridden Artist" {
+			t.Errorf("Artist = %q, want %q", track.Artist, "Overridden Artist")
+		}
+		if track.Album != "Test Album" {
+			t.Errorf("Album = %q, want %q (untouched)", track.Album, "Test Album")
+		}
+	})
+
+	t.Run("blank override leaves filename fallback untouched", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
+
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{
+			Artist: "   ", // whitespace-only counts as unset
+		})
+		if err != nil {
+			t.Fatalf("IngestFile() error = %v", err)
+		}
+		cleanupTrack(t, db, track.ID)
+
+		if track.Artist != "Unknown" {
+			t.Errorf("Artist = %q, want %q", track.Artist, "Unknown")
+		}
+	})
+
+	t.Run("no album artist override falls back to the track's own artist", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
+		if err != nil {
+			t.Fatalf("IngestFile() error = %v", err)
+		}
+		cleanupTrack(t, db, track.ID)
+
+		if track.AlbumArtist != track.Artist {
+			t.Errorf("AlbumArtist = %q, want %q (fallback to Artist)", track.AlbumArtist, track.Artist)
+		}
+	})
+
+	t.Run("album artist override applies independently of artist", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+			Artist:      "Track Artist",
+			AlbumArtist: "Various Artists",
+		})
+		if err != nil {
+			t.Fatalf("IngestFile() error = %v", err)
+		}
+		cleanupTrack(t, db, track.ID)
+
+		if track.Artist != "Track Artist" {
+			t.Errorf("Artist = %q, want %q", track.Artist, "Track Artist")
+		}
+		if track.AlbumArtist != "Various Artists" {
+			t.Errorf("AlbumArtist = %q, want %q", track.AlbumArtist, "Various Artists")
+		}
+	})
+}
+
 func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 	st, db := testStore(t)
 
@@ -161,7 +266,7 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "audio/flac")
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "audio/flac", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -179,7 +284,7 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "")
+		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -199,7 +304,7 @@ func TestIngestFile_InsertFailureCleansUpFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // force InsertTrack to fail
 
-	_, err := IngestFile(ctx, st, cfg, srcPath, "untagged.mp3", "audio/mpeg")
+	_, err := IngestFile(ctx, st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err == nil {
 		t.Fatal("IngestFile() error = nil, want non-nil for a canceled context")
 	}
