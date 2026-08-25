@@ -27,16 +27,16 @@ export default function TabLayout() {
       tabBar={(props) => <TabBarWithPlayerDock {...props} />}
     >
       <Tabs.Screen
-        name="index"
-        options={{ title: 'Songs', tabBarIcon: () => <TabIcon glyph="🎵" /> }}
-      />
-      <Tabs.Screen
         name="artists"
         options={{ title: 'Artists', tabBarIcon: () => <TabIcon glyph="🎤" /> }}
       />
       <Tabs.Screen
         name="albums"
         options={{ title: 'Albums', tabBarIcon: () => <TabIcon glyph="💿" /> }}
+      />
+      <Tabs.Screen
+        name="index"
+        options={{ title: 'Songs', tabBarIcon: () => <TabIcon glyph="🎵" /> }}
       />
       <Tabs.Screen
         name="playlists"

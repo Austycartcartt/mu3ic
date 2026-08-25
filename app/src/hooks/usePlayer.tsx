@@ -39,6 +39,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }
 
   function seek(seconds: number) {
+    if (!Number.isFinite(seconds)) return;
     player.seekTo(seconds);
   }
 

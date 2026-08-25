@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type GestureResponderEvent } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePlayer } from '@/hooks/usePlayer';
@@ -25,6 +25,8 @@ export function PlayerDock({ withSafeAreaInset = true }: Props) {
   const { playingTrack, isPlaying, currentTime, duration, togglePlayPause, seek } = usePlayer();
   const insets = useSafeAreaInsets();
   const [trackWidth, setTrackWidth] = useState(0);
+  const trackPageX = useRef(0);
+  const trackRef = useRef<View>(null);
 
   if (!playingTrack) {
     return null;
@@ -33,13 +35,19 @@ export function PlayerDock({ withSafeAreaInset = true }: Props) {
   const bottomInset = withSafeAreaInset ? insets.bottom : 0;
   const progress = duration > 0 ? currentTime / duration : 0;
 
-  function handleLayout(event: LayoutChangeEvent) {
-    setTrackWidth(event.nativeEvent.layout.width);
+  // nativeEvent.locationX is unreliable on Fabric (RN 0.81) — it's not
+  // consistently relative to the pressed element — so measure the track's
+  // page position on layout and derive the seek ratio from pageX instead.
+  function handleLayout() {
+    trackRef.current?.measure((_x, _y, width, _height, pageX) => {
+      setTrackWidth(width);
+      trackPageX.current = pageX;
+    });
   }
 
   function handleSeekPress(event: GestureResponderEvent) {
-    if (trackWidth === 0 || duration === 0) return;
-    const ratio = Math.min(1, Math.max(0, event.nativeEvent.locationX / trackWidth));
+    if (trackWidth === 0 || !Number.isFinite(duration) || duration <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (event.nativeEvent.pageX - trackPageX.current) / trackWidth));
     seek(ratio * duration);
   }
 
@@ -58,7 +66,7 @@ export function PlayerDock({ withSafeAreaInset = true }: Props) {
         )}
       </View>
 
-      <Pressable style={styles.progressTrack} onLayout={handleLayout} onPress={handleSeekPress}>
+      <Pressable ref={trackRef} style={styles.progressTrack} onLayout={handleLayout} onPress={handleSeekPress}>
         <View style={styles.progressBase} />
         <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
       </Pressable>
