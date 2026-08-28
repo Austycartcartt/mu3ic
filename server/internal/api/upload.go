@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Austycartcartt/mu3ic/server/internal/library"
@@ -19,8 +20,8 @@ const maxUploadSize = 200 << 20 // 200 MB, covers long FLAC files
 // into a library track lives in IngestFile.
 //
 // Besides the required "audio" part, it accepts optional "title"/
-// "artist"/"album"/"album_artist" text parts — the upload preview
-// screen's filename-parsed, hand-editable guess — passed through to
+// "artist"/"album"/"album_artist"/"track_number" text parts — the upload
+// preview screen's filename-parsed, hand-editable guess — passed through to
 // IngestFile as overrides.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
@@ -103,7 +104,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 				writeJSONError(w, http.StatusInternalServerError, "failed to process upload")
 				return
 			}
-		case "title", "artist", "album", "album_artist":
+		case "title", "artist", "album", "album_artist", "track_number":
 			value, err := io.ReadAll(part)
 			if err != nil {
 				part.Close()
@@ -119,6 +120,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 				overrides.Album = string(value)
 			case "album_artist":
 				overrides.AlbumArtist = string(value)
+			case "track_number":
+				// A malformed value (shouldn't happen from the app's own
+				// numeric input) just leaves the override unset rather than
+				// failing the whole upload.
+				if n, err := strconv.Atoi(strings.TrimSpace(string(value))); err == nil {
+					overrides.TrackNumber = n
+				}
 			}
 		}
 		part.Close()

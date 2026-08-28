@@ -48,19 +48,19 @@ func (s *Store) ListAlbums(ctx context.Context) ([]AlbumSummary, error) {
 	return albums, nil
 }
 
-// ListTracksByAlbum orders by title since there is no track_number column
-// (dropped when 003_uuid_storage.sql recreated the tracks table) to order
-// by within an album. An empty albumArtist means no disambiguator was given
-// (matches any album artist); pass the AlbumSummary.Artist the caller has,
-// since album titles aren't unique across artists. Matched against
-// album_artist, not each track's own artist, so a various-artists
+// ListTracksByAlbum orders by track_number (untagged tracks, with a NULL
+// track_number, sort after any tagged track) then title as a tiebreaker/
+// fallback for untagged albums. An empty albumArtist means no disambiguator
+// was given (matches any album artist); pass the AlbumSummary.Artist the
+// caller has, since album titles aren't unique across artists. Matched
+// against album_artist, not each track's own artist, so a various-artists
 // compilation's tracks (each with a different artist, sharing one
 // album_artist) all come back together.
 func (s *Store) ListTracksByAlbum(ctx context.Context, album string, albumArtist string) ([]Track, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+trackColumns+` FROM tracks
 		 WHERE album = $1 AND ($2 = '' OR album_artist = $2)
-		 ORDER BY title`, album, albumArtist)
+		 ORDER BY track_number NULLS LAST, title`, album, albumArtist)
 	if err != nil {
 		return nil, fmt.Errorf("listing tracks for album %q: %w", album, err)
 	}

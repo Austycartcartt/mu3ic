@@ -23,6 +23,7 @@ type Track struct {
 	Artist           string    `json:"artist"`
 	Album            string    `json:"album"`
 	AlbumArtist      string    `json:"-"` // internal grouping key for ListAlbums; see store.AlbumSummary
+	TrackNumber      *int      `json:"track_number"` // nil if untagged
 	DurationSeconds  *int      `json:"duration_seconds"` // always nil this phase; TODO(phase-later): decode duration
 	ArtworkExt       string    `json:"-"`
 	HasArtwork       bool      `json:"hasArtwork"`
@@ -41,6 +42,7 @@ type NewTrack struct {
 	Artist           string
 	Album            string
 	AlbumArtist      string // "" means unset — InsertTrack falls back to Artist
+	TrackNumber      int    // 0 means untagged/unknown — stored as NULL
 	ArtworkExt       string // "" if the track has no artwork
 }
 
@@ -57,6 +59,7 @@ type dbTrack struct {
 	Artist           string
 	Album            string
 	AlbumArtist      string
+	TrackNumber      sql.NullInt32
 	DurationSeconds  sql.NullInt32
 	ArtworkExt       sql.NullString
 	UploadedAt       time.Time
@@ -68,6 +71,11 @@ func (d dbTrack) toTrack() Track {
 		v := int(d.DurationSeconds.Int32)
 		duration = &v
 	}
+	var trackNumber *int
+	if d.TrackNumber.Valid {
+		v := int(d.TrackNumber.Int32)
+		trackNumber = &v
+	}
 	return Track{
 		ID:               d.ID,
 		StorageKey:       d.StorageKey,
@@ -78,6 +86,7 @@ func (d dbTrack) toTrack() Track {
 		Artist:           d.Artist,
 		Album:            d.Album,
 		AlbumArtist:      d.AlbumArtist,
+		TrackNumber:      trackNumber,
 		DurationSeconds:  duration,
 		ArtworkExt:       d.ArtworkExt.String,
 		HasArtwork:       d.ArtworkExt.Valid && d.ArtworkExt.String != "",
@@ -85,12 +94,12 @@ func (d dbTrack) toTrack() Track {
 	}
 }
 
-const trackColumns = `id, storage_key, mime_type, original_filename, size, title, artist, album, album_artist, duration_seconds, artwork_ext, uploaded_at`
+const trackColumns = `id, storage_key, mime_type, original_filename, size, title, artist, album, album_artist, track_number, duration_seconds, artwork_ext, uploaded_at`
 
 func scanTrack(row interface{ Scan(...any) error }) (Track, error) {
 	var d dbTrack
 	err := row.Scan(&d.ID, &d.StorageKey, &d.MimeType, &d.OriginalFilename, &d.Size,
-		&d.Title, &d.Artist, &d.Album, &d.AlbumArtist, &d.DurationSeconds, &d.ArtworkExt, &d.UploadedAt)
+		&d.Title, &d.Artist, &d.Album, &d.AlbumArtist, &d.TrackNumber, &d.DurationSeconds, &d.ArtworkExt, &d.UploadedAt)
 	if err != nil {
 		return Track{}, err
 	}
@@ -111,11 +120,11 @@ func (s *Store) InsertTrack(ctx context.Context, nt NewTrack) (Track, error) {
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`INSERT INTO tracks (storage_key, mime_type, original_filename, size, title, artist, album, album_artist, artwork_ext)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO tracks (storage_key, mime_type, original_filename, size, title, artist, album, album_artist, track_number, artwork_ext)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING `+trackColumns,
 		nt.StorageKey, nt.MimeType, nt.OriginalFilename, nt.Size,
-		nt.Title, nt.Artist, nt.Album, albumArtist, nullableString(nt.ArtworkExt),
+		nt.Title, nt.Artist, nt.Album, albumArtist, nullableTrackNumber(nt.TrackNumber), nullableString(nt.ArtworkExt),
 	)
 	track, err := scanTrack(row)
 	if err != nil {
@@ -128,6 +137,13 @@ func (s *Store) InsertTrack(ctx context.Context, nt NewTrack) (Track, error) {
 // NULL rather than an empty-string sentinel.
 func nullableString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// nullableTrackNumber converts 0 (ExtractMetadata's "no tag" value) to a
+// SQL NULL, so an untagged track sorts after any real track number instead
+// of colliding with track 0.
+func nullableTrackNumber(n int) sql.NullInt32 {
+	return sql.NullInt32{Int32: int32(n), Valid: n > 0}
 }
 
 func (s *Store) ListTracks(ctx context.Context) ([]Track, error) {

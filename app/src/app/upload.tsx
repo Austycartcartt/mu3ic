@@ -1,4 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
+import { router } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useState } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -21,12 +22,14 @@ type PickedFile = {
   relativePath?: string; // set for web folder picks, via webkitRelativePath
 };
 
-// A picked file plus its editable, filename-parsed title/artist/album
-// guess — shown on the preview screen before anything is uploaded.
+// A picked file plus its editable, filename-parsed title/artist/album/
+// track-number guess — shown on the preview screen before anything is
+// uploaded.
 type PreviewRow = PickedFile & {
   title: string;
   artist: string;
   album: string;
+  trackNumber: string; // kept as the raw text input value; parsed on upload
 };
 
 const AUDIO_EXTENSION_RE = /\.(mp3|flac|m4a|ogg|wav|aac|opus)$/i;
@@ -71,6 +74,7 @@ function buildPreviewRows(files: PickedFile[]): PreviewRow[] {
       title: guess.confident ? (guess.title ?? '') : '',
       artist: guess.confident ? (guess.artist ?? '') : '',
       album: guess.confident ? (guess.album ?? '') : '',
+      trackNumber: guess.confident && guess.trackNumber !== undefined ? String(guess.trackNumber) : '',
     };
   });
 }
@@ -119,7 +123,7 @@ export default function UploadScreen() {
     setStatus('preview');
   }
 
-  function updateRow(index: number, field: 'title' | 'artist' | 'album', value: string) {
+  function updateRow(index: number, field: 'title' | 'artist' | 'album' | 'trackNumber', value: string) {
     setPreviewRows((rows) => rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   }
 
@@ -141,11 +145,13 @@ export default function UploadScreen() {
         setCurrent(i + 1);
         setCurrentName(row.name);
         try {
+          const trackNumber = parseInt(row.trackNumber, 10);
           await uploadTrack(row.uri, row.name, row.mimeType, row.webFile, {
             title: row.title,
             artist: row.artist,
             album: row.album,
             albumArtist,
+            trackNumber: Number.isNaN(trackNumber) ? undefined : trackNumber,
           });
         } catch {
           failed.push(row.name);
@@ -160,7 +166,7 @@ export default function UploadScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Header title="Upload" />
+      <Header title="Upload" action={{ label: 'Back', onPress: () => router.back() }} />
 
       {status === 'idle' && (
         <View style={styles.content}>
@@ -214,6 +220,13 @@ export default function UploadScreen() {
                   placeholder="Album"
                   value={item.album}
                   onChangeText={(v) => updateRow(index, 'album', v)}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Track #"
+                  value={item.trackNumber}
+                  onChangeText={(v) => updateRow(index, 'trackNumber', v)}
+                  keyboardType="number-pad"
                 />
               </View>
             )}

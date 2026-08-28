@@ -35,12 +35,11 @@ func (s *Store) ListArtists(ctx context.Context) ([]ArtistSummary, error) {
 	return artists, nil
 }
 
-// ListTracksByArtist orders by album then title since there is no
-// track_number column (dropped when 003_uuid_storage.sql recreated the
-// tracks table) to order by within an album.
+// ListTracksByArtist orders by album, then track_number (untagged tracks
+// sort after any tagged track within the album) then title as a fallback.
 func (s *Store) ListTracksByArtist(ctx context.Context, artist string) ([]Track, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+trackColumns+` FROM tracks WHERE artist = $1 ORDER BY album, title`, artist)
+		`SELECT `+trackColumns+` FROM tracks WHERE artist = $1 ORDER BY album, track_number NULLS LAST, title`, artist)
 	if err != nil {
 		return nil, fmt.Errorf("listing tracks for artist %q: %w", artist, err)
 	}

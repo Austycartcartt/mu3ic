@@ -10,6 +10,7 @@ export type Track = {
   title: string;
   artist: string;
   album: string;
+  track_number: number | null;
   duration_seconds: number | null;
   hasArtwork: boolean;
   uploaded_at: string;
@@ -54,6 +55,11 @@ export type TrackMetadataOverrides = {
   // track having its own artist. Leave unset for a normal, single-artist
   // album; the server then falls back to that track's own artist.
   albumArtist?: string;
+  // Position within the album — from the upload preview screen's
+  // filename-parsed guess (see app/src/utils/parseFilename.ts) or a hand
+  // edit. Leave unset for a well-tagged file; the server falls back to the
+  // embedded tag's track number.
+  trackNumber?: number;
 };
 
 // uploadTrack posts a single picked file as multipart/form-data under the
@@ -90,6 +96,7 @@ export async function uploadTrack(
   if (overrides?.artist?.trim()) form.append('artist', overrides.artist.trim());
   if (overrides?.album?.trim()) form.append('album', overrides.album.trim());
   if (overrides?.albumArtist?.trim()) form.append('album_artist', overrides.albumArtist.trim());
+  if (overrides?.trackNumber) form.append('track_number', String(overrides.trackNumber));
 
   const res = await fetch(apiUrl('/api/tracks'), {
     method: 'POST',

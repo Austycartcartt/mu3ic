@@ -48,6 +48,7 @@ export default function AlbumTracksScreen() {
         tracks={tracks}
         playingId={playingTrack?.id ?? null}
         onPress={(track) => play(track, streamUrl(track.id))}
+        showTrackNumbers
       />
     </SafeAreaView>
   );

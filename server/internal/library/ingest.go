@@ -19,21 +19,24 @@ import (
 // scanner will be another. Contains no http.Request or other HTTP types,
 // so it's callable directly from a test with just a path.
 //
-// Overrides carries caller-supplied title/artist/album/albumArtist values
-// (e.g. from the upload preview screen's filename-parsed, hand-editable
-// guess). A non-empty (after trimming) field replaces whatever the
-// tag-extraction/filename fallback chain below would have produced for
+// Overrides carries caller-supplied title/artist/album/albumArtist/
+// trackNumber values (e.g. from the upload preview screen's filename-parsed,
+// hand-editable guess). A non-empty (after trimming) field replaces whatever
+// the tag-extraction/filename fallback chain below would have produced for
 // it; an empty field leaves that chain's result untouched. AlbumArtist has
 // no filename-derived guess (see app/src/utils/parseFilename.ts) — it's
 // populated from the ALBUMARTIST/TPE2 tag if present, or left for
 // store.InsertTrack's per-track-artist fallback otherwise; set it
 // explicitly (e.g. to "Various Artists") to group a compilation's
-// differently-artist-tagged tracks under one album.
+// differently-artist-tagged tracks under one album. TrackNumber follows the
+// same "0 means unset" convention as Metadata.TrackNumber, since untagged
+// formats (e.g. WAV) have no tag value to distinguish from a real 0.
 type Overrides struct {
 	Title       string
 	Artist      string
 	Album       string
 	AlbumArtist string
+	TrackNumber int
 }
 
 // declaredMimeType is the caller's best guess at the file's Content-Type
@@ -102,6 +105,10 @@ func IngestFile(ctx context.Context, st *store.Store, cfg Config, srcPath, origi
 	if v := strings.TrimSpace(overrides.AlbumArtist); v != "" {
 		albumArtist = v
 	}
+	trackNumber := md.TrackNumber
+	if overrides.TrackNumber > 0 {
+		trackNumber = overrides.TrackNumber
+	}
 
 	storageKey, err := NewUUID()
 	if err != nil {
@@ -135,6 +142,7 @@ func IngestFile(ctx context.Context, st *store.Store, cfg Config, srcPath, origi
 		Artist:           artist,
 		Album:            album,
 		AlbumArtist:      albumArtist,
+		TrackNumber:      trackNumber,
 		ArtworkExt:       artworkExt,
 	})
 	if err != nil {

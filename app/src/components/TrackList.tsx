@@ -7,9 +7,13 @@ type Props = {
   tracks: Track[];
   playingId: number | null;
   onPress: (track: Track) => void;
+  // Shows each track's position number instead of artwork — only makes
+  // sense for a single-album list, where position is meaningful; the
+  // all-tracks and per-artist lists mix albums so it's omitted there.
+  showTrackNumbers?: boolean;
 };
 
-export function TrackList({ tracks, playingId, onPress }: Props) {
+export function TrackList({ tracks, playingId, onPress, showTrackNumbers }: Props) {
   return (
     <FlatList
       data={tracks}
@@ -24,6 +28,11 @@ export function TrackList({ tracks, playingId, onPress }: Props) {
           .join(' — ');
         return (
           <Pressable style={styles.row} onPress={() => onPress(item)}>
+            {showTrackNumbers && (
+              <Text style={styles.trackNumber}>
+                {item.track_number ?? ''}
+              </Text>
+            )}
             {item.hasArtwork ? (
               // React Native's built-in Image caching is enough here — no
               // image-caching library per the Phase 2 spec.
@@ -60,6 +69,13 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
+  },
+  trackNumber: {
+    width: 24,
+    textAlign: 'right',
+    marginRight: theme.spacing.md,
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
   },
   artwork: {
     width: 44,
