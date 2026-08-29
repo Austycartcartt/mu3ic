@@ -3,7 +3,8 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getArtistTracks, streamUrl, type Track } from '@/api/client';
+import { getArtistTracks, type Track } from '@/api/client';
+import { AddToPlaylistSheet } from '@/components/AddToPlaylistSheet';
 import { Header } from '@/components/Header';
 import { TrackList } from '@/components/TrackList';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -13,7 +14,8 @@ export default function ArtistTracksScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { play, playingTrack } = usePlayer();
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
+  const { playQueue, playingTrack } = usePlayer();
 
   useFocusEffect(
     useCallback(() => {
@@ -47,8 +49,10 @@ export default function ArtistTracksScreen() {
       <TrackList
         tracks={tracks}
         playingId={playingTrack?.id ?? null}
-        onPress={(track) => play(track, streamUrl(track.id))}
+        onPress={(_, index) => playQueue(tracks, index)}
+        onLongPress={setAddTarget}
       />
+      <AddToPlaylistSheet track={addTarget} onClose={() => setAddTarget(null)} />
     </SafeAreaView>
   );
 }

@@ -46,6 +46,15 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("GET /api/artists/{name}/tracks", s.protected(s.handleArtistTracks))
 	mux.Handle("GET /api/albums", s.protected(s.handleListAlbums))
 	mux.Handle("GET /api/albums/{name}/tracks", s.protected(s.handleAlbumTracks))
+	mux.Handle("GET /api/search", s.protected(s.handleSearch))
+	mux.Handle("GET /api/playlists", s.protected(s.handleListPlaylists))
+	mux.Handle("POST /api/playlists", s.protected(s.handleCreatePlaylist))
+	mux.Handle("PATCH /api/playlists/{id}", s.protected(s.handleRenamePlaylist))
+	mux.Handle("DELETE /api/playlists/{id}", s.protected(s.handleDeletePlaylist))
+	mux.Handle("GET /api/playlists/{id}/tracks", s.protected(s.handlePlaylistTracks))
+	mux.Handle("POST /api/playlists/{id}/tracks", s.protected(s.handleAddPlaylistTrack))
+	mux.Handle("PUT /api/playlists/{id}/tracks", s.protected(s.handleReorderPlaylist))
+	mux.Handle("DELETE /api/playlists/{id}/tracks/{trackId}", s.protected(s.handleRemovePlaylistTrack))
 
 	return s.withLogging(s.withCORS(mux))
 }
@@ -68,7 +77,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
 		if r.Method == http.MethodOptions {

@@ -48,6 +48,14 @@ export type Album = {
   hasArtwork: boolean;
 };
 
+export type Playlist = {
+  id: number;
+  name: string;
+  track_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AuthResponse = {
   id: number;
   email: string;
@@ -222,6 +230,103 @@ export async function getAlbumTracks(album: string, artist?: string): Promise<Tr
     throw new Error(`failed to fetch album tracks: ${res.status}`);
   }
   return res.json();
+}
+
+// --- Search -------------------------------------------------------------
+
+// searchTracks matches q against title/artist/album (case-insensitive
+// substring) on the server. A blank q comes back as [] without a round
+// trip being meaningful, but callers still debounce and skip empty input.
+export async function searchTracks(q: string): Promise<Track[]> {
+  const res = await request(`/api/search?q=${encodeURIComponent(q)}`);
+  if (!res.ok) {
+    throw new Error(`search failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Playlists ---------------------------------------------------------
+
+export async function getPlaylists(): Promise<Playlist[]> {
+  const res = await request('/api/playlists');
+  if (!res.ok) {
+    throw new Error(`failed to fetch playlists: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function createPlaylist(name: string): Promise<Playlist> {
+  const res = await request('/api/playlists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `failed to create playlist: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function renamePlaylist(id: number, name: string): Promise<void> {
+  const res = await request(`/api/playlists/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `failed to rename playlist: ${res.status}`);
+  }
+}
+
+export async function deletePlaylist(id: number): Promise<void> {
+  const res = await request(`/api/playlists/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    throw new Error(`failed to delete playlist: ${res.status}`);
+  }
+}
+
+export async function getPlaylistTracks(id: number): Promise<Track[]> {
+  const res = await request(`/api/playlists/${id}/tracks`);
+  if (!res.ok) {
+    throw new Error(`failed to fetch playlist tracks: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addTrackToPlaylist(id: number, trackId: number): Promise<void> {
+  const res = await request(`/api/playlists/${id}/tracks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track_id: trackId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `failed to add track: ${res.status}`);
+  }
+}
+
+export async function removeTrackFromPlaylist(id: number, trackId: number): Promise<void> {
+  const res = await request(`/api/playlists/${id}/tracks/${trackId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    throw new Error(`failed to remove track: ${res.status}`);
+  }
+}
+
+// reorderPlaylist sends the full track-id order; the server rejects it
+// (400) unless it's exactly the playlist's current membership, so callers
+// build it from the list they just rendered.
+export async function reorderPlaylist(id: number, trackIds: number[]): Promise<void> {
+  const res = await request(`/api/playlists/${id}/tracks`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track_ids: trackIds }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `failed to reorder playlist: ${res.status}`);
+  }
 }
 
 export function streamUrl(id: number): string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,18 @@ func (d dbTrack) toTrack() Track {
 
 const trackColumns = `id, storage_key, mime_type, original_filename, size, title, artist, album, album_artist, track_number, duration_seconds, artwork_ext, uploaded_at`
 
+// prefixedTrackColumns is trackColumns with every column qualified by the
+// given table alias, for SELECTs that JOIN tracks against another table
+// with a colliding column name (e.g. playlists.id). Column order still
+// matches scanTrack.
+func prefixedTrackColumns(alias string) string {
+	cols := strings.Split(trackColumns, ", ")
+	for i, c := range cols {
+		cols[i] = alias + "." + c
+	}
+	return strings.Join(cols, ", ")
+}
+
 func scanTrack(row interface{ Scan(...any) error }) (Track, error) {
 	var d dbTrack
 	err := row.Scan(&d.ID, &d.StorageKey, &d.MimeType, &d.OriginalFilename, &d.Size,
@@ -157,6 +170,44 @@ func (s *Store) ListTracks(ctx context.Context, userID int64) ([]Track, error) {
 	defer rows.Close()
 
 	tracks := []Track{} // not nil, so an empty result serializes as [] rather than null
+	for rows.Next() {
+		track, err := scanTrack(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning track: %w", err)
+		}
+		tracks = append(tracks, track)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating tracks: %w", err)
+	}
+	return tracks, nil
+}
+
+// likeEscaper neutralizes the LIKE/ILIKE wildcards so a query containing
+// '%' or '_' is matched literally. Paired with an `ESCAPE '\'` clause on
+// the query itself.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// SearchTracks does a case-insensitive substring match of query against
+// each track's title, artist, and album, scoped to userID. Deliberately a
+// plain ILIKE '%q%' rather than Postgres full-text search — no stemming or
+// ranking, but zero new machinery and fine at a personal library's scale
+// (see the Phase 6 entry in docs/DECISIONS.md). The caller is expected to
+// have trimmed query and to skip the call entirely when it's empty.
+func (s *Store) SearchTracks(ctx context.Context, userID int64, query string) ([]Track, error) {
+	pattern := "%" + likeEscaper.Replace(query) + "%"
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+trackColumns+` FROM tracks
+		 WHERE user_id = $1
+		   AND (title ILIKE $2 ESCAPE '\' OR artist ILIKE $2 ESCAPE '\' OR album ILIKE $2 ESCAPE '\')
+		 ORDER BY title
+		 LIMIT 100`, userID, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("searching tracks: %w", err)
+	}
+	defer rows.Close()
+
+	tracks := []Track{}
 	for rows.Next() {
 		track, err := scanTrack(rows)
 		if err != nil {

@@ -22,7 +22,18 @@ type Props = {
 // Fixed dock, not a scroll-flow card — stays mounted persistently so it
 // survives screen navigation (see (tabs)/_layout.tsx and upload.tsx).
 export function PlayerDock({ withSafeAreaInset = true }: Props) {
-  const { playingTrack, isPlaying, currentTime, duration, togglePlayPause, seek } = usePlayer();
+  const {
+    playingTrack,
+    isPlaying,
+    currentTime,
+    duration,
+    togglePlayPause,
+    seek,
+    playNext,
+    playPrevious,
+    hasNext,
+    hasPrevious,
+  } = usePlayer();
   const insets = useSafeAreaInsets();
   const [trackWidth, setTrackWidth] = useState(0);
   const trackPageX = useRef(0);
@@ -73,9 +84,17 @@ export function PlayerDock({ withSafeAreaInset = true }: Props) {
 
       <View style={styles.row}>
         <Text style={styles.time}>{formatTime(currentTime)}</Text>
-        <Pressable style={styles.playButton} onPress={togglePlayPause}>
-          <Text style={styles.playButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
-        </Pressable>
+        <View style={styles.controls}>
+          <Pressable onPress={playPrevious} disabled={!hasPrevious} hitSlop={8}>
+            <Text style={[styles.skip, !hasPrevious && styles.skipDisabled]}>⏮</Text>
+          </Pressable>
+          <Pressable style={styles.playButton} onPress={togglePlayPause}>
+            <Text style={styles.playButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+          </Pressable>
+          <Pressable onPress={playNext} disabled={!hasNext} hitSlop={8}>
+            <Text style={[styles.skip, !hasNext && styles.skipDisabled]}>⏭</Text>
+          </Pressable>
+        </View>
         <Text style={styles.time}>-{formatTime(duration - currentTime)}</Text>
       </View>
     </View>
@@ -126,13 +145,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
   time: {
     fontSize: theme.fontSize.sm,
     color: theme.colors.textMuted,
     width: 44,
   },
+  skip: {
+    fontSize: theme.fontSize.lg,
+    color: theme.colors.text,
+  },
+  skipDisabled: {
+    color: theme.colors.border,
+  },
   playButton: {
-    paddingHorizontal: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
   },
   playButtonText: {

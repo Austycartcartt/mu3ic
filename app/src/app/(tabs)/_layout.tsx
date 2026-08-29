@@ -48,6 +48,10 @@ export default function TabLayout() {
         options={{ title: 'Songs', tabBarIcon: () => <TabIcon glyph="🎵" /> }}
       />
       <Tabs.Screen
+        name="search"
+        options={{ title: 'Search', tabBarIcon: () => <TabIcon glyph="🔍" /> }}
+      />
+      <Tabs.Screen
         name="playlists"
         options={{ title: 'Playlists', tabBarIcon: () => <TabIcon glyph="📃" /> }}
       />

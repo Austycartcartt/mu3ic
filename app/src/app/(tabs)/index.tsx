@@ -3,7 +3,8 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getTracks, streamUrl, type Track } from '@/api/client';
+import { getTracks, type Track } from '@/api/client';
+import { AddToPlaylistSheet } from '@/components/AddToPlaylistSheet';
 import { Header } from '@/components/Header';
 import { TrackList } from '@/components/TrackList';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -12,7 +13,8 @@ import { theme } from '@/theme/theme';
 export default function SongsScreen() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { play, playingTrack } = usePlayer();
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
+  const { playQueue, playingTrack } = usePlayer();
 
   // Re-fetches every time this screen gains focus (including on return
   // from the upload screen), following React's documented fetch pattern
@@ -51,8 +53,10 @@ export default function SongsScreen() {
       <TrackList
         tracks={tracks}
         playingId={playingTrack?.id ?? null}
-        onPress={(track) => play(track, streamUrl(track.id))}
+        onPress={(_, index) => playQueue(tracks, index)}
+        onLongPress={setAddTarget}
       />
+      <AddToPlaylistSheet track={addTarget} onClose={() => setAddTarget(null)} />
     </SafeAreaView>
   );
 }

@@ -1,17 +1,26 @@
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import type { Track } from '@/api/client';
+import { streamUrl, type Track } from '@/api/client';
 
 // Wraps expo-audio's player hook (never expo-av — it's deprecated) as a
 // context so playback state (and the docked player UI) survives navigating
 // between screens instead of resetting per-screen.
+//
+// Playback is queue-based: callers hand over the whole list they're
+// showing (an album, a playlist, search results) plus the tapped index,
+// and the player advances through it — on the ⏭/⏮ dock buttons and
+// automatically when a track finishes.
 type PlayerContextValue = {
-  play: (track: Track, uri: string) => void;
+  playQueue: (tracks: Track[], startIndex: number) => void;
   togglePlayPause: () => void;
   seek: (seconds: number) => void;
+  playNext: () => void;
+  playPrevious: () => void;
   playingTrack: Track | null;
   isPlaying: boolean;
+  hasNext: boolean;
+  hasPrevious: boolean;
   currentTime: number;
   duration: number;
   isBuffering: boolean;
@@ -22,12 +31,38 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const player = useAudioPlayer();
   const status = useAudioPlayerStatus(player);
-  const [playingTrack, setPlayingTrack] = useState<Track | null>(null);
+  const [queue, setQueue] = useState<Track[]>([]);
+  const [index, setIndex] = useState(0);
 
-  function play(track: Track, uri: string) {
-    player.replace({ uri });
+  const playingTrack = queue[index] ?? null;
+  const hasNext = index < queue.length - 1;
+  const hasPrevious = index > 0;
+
+  function playAt(tracks: Track[], at: number) {
+    const track = tracks[at];
+    if (!track) return;
+    player.replace({ uri: streamUrl(track.id) });
     player.play();
-    setPlayingTrack(track);
+  }
+
+  function playQueue(tracks: Track[], startIndex: number) {
+    setQueue(tracks);
+    setIndex(startIndex);
+    playAt(tracks, startIndex);
+  }
+
+  function playNext() {
+    if (!hasNext) return;
+    const next = index + 1;
+    setIndex(next);
+    playAt(queue, next);
+  }
+
+  function playPrevious() {
+    if (!hasPrevious) return;
+    const prev = index - 1;
+    setIndex(prev);
+    playAt(queue, prev);
   }
 
   function togglePlayPause() {
@@ -43,12 +78,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     player.seekTo(seconds);
   }
 
+  // Auto-advance when a track finishes. status.didJustFinish stays true
+  // across a few status frames, so a ref gates it to one advance per
+  // finish. When there's no next track, playback just stops.
+  const advancedForFinish = useRef(false);
+  useEffect(() => {
+    if (!status.didJustFinish) {
+      advancedForFinish.current = false;
+      return;
+    }
+    if (advancedForFinish.current) return;
+    advancedForFinish.current = true;
+    if (hasNext) {
+      const next = index + 1;
+      setIndex(next);
+      playAt(queue, next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.didJustFinish]);
+
   const value: PlayerContextValue = {
-    play,
+    playQueue,
     togglePlayPause,
     seek,
+    playNext,
+    playPrevious,
     playingTrack,
     isPlaying: status.playing,
+    hasNext,
+    hasPrevious,
     currentTime: status.currentTime,
     duration: status.duration || playingTrack?.duration_seconds || 0,
     isBuffering: status.isBuffering,
