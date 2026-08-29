@@ -3,6 +3,25 @@
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
+// The bearer token for the logged-in user. Kept as a module variable (set
+// by AuthProvider via setAuthToken) so the request helpers and the
+// stream/artwork URL builders don't each need it threaded through as an
+// argument. null when logged out.
+let authToken: string | null = null;
+
+// Called when any authenticated request comes back 401 — i.e. the token
+// expired or was revoked mid-session. AuthProvider registers a handler
+// that logs the user out and bounces them to the login screen.
+let onUnauthorized: (() => void) | null = null;
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 export type Track = {
   id: number;
   original_filename: string;
@@ -29,6 +48,13 @@ export type Album = {
   hasArtwork: boolean;
 };
 
+export type AuthResponse = {
+  id: number;
+  email: string;
+  token: string;
+  expiresAt: string;
+};
+
 function apiUrl(path: string): string {
   if (!API_URL) {
     throw new Error(
@@ -38,8 +64,62 @@ function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
+function authHeaders(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
+// withToken appends ?token= to a URL that the audio player / <Image> fetch
+// directly, since those requests can't carry an Authorization header.
+function withToken(url: string): string {
+  if (!authToken) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(authToken)}`;
+}
+
+// request is fetch + the Authorization header + one place to catch an
+// expired token. Only for the authenticated JSON endpoints; login/register
+// call fetch directly (they have no token, and a 401 there means "bad
+// credentials", not "session expired").
+async function request(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(apiUrl(path), {
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+  });
+  if (res.status === 401) {
+    onUnauthorized?.();
+    throw new Error('Your session has expired. Please log in again.');
+  }
+  return res;
+}
+
+export async function login(email: string, password: string): Promise<AuthResponse> {
+  const res = await fetch(apiUrl('/api/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `login failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function register(email: string, password: string): Promise<AuthResponse> {
+  const res = await fetch(apiUrl('/api/auth/register'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `registration failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getTracks(): Promise<Track[]> {
-  const res = await fetch(apiUrl('/api/tracks'));
+  const res = await request('/api/tracks');
   if (!res.ok) {
     throw new Error(`failed to fetch tracks: ${res.status}`);
   }
@@ -98,7 +178,7 @@ export async function uploadTrack(
   if (overrides?.albumArtist?.trim()) form.append('album_artist', overrides.albumArtist.trim());
   if (overrides?.trackNumber) form.append('track_number', String(overrides.trackNumber));
 
-  const res = await fetch(apiUrl('/api/tracks'), {
+  const res = await request('/api/tracks', {
     method: 'POST',
     body: form,
   });
@@ -110,7 +190,7 @@ export async function uploadTrack(
 }
 
 export async function getArtists(): Promise<Artist[]> {
-  const res = await fetch(apiUrl('/api/artists'));
+  const res = await request('/api/artists');
   if (!res.ok) {
     throw new Error(`failed to fetch artists: ${res.status}`);
   }
@@ -118,7 +198,7 @@ export async function getArtists(): Promise<Artist[]> {
 }
 
 export async function getArtistTracks(name: string): Promise<Track[]> {
-  const res = await fetch(apiUrl(`/api/artists/${encodeURIComponent(name)}/tracks`));
+  const res = await request(`/api/artists/${encodeURIComponent(name)}/tracks`);
   if (!res.ok) {
     throw new Error(`failed to fetch artist tracks: ${res.status}`);
   }
@@ -126,7 +206,7 @@ export async function getArtistTracks(name: string): Promise<Track[]> {
 }
 
 export async function getAlbums(): Promise<Album[]> {
-  const res = await fetch(apiUrl('/api/albums'));
+  const res = await request('/api/albums');
   if (!res.ok) {
     throw new Error(`failed to fetch albums: ${res.status}`);
   }
@@ -137,7 +217,7 @@ export async function getAlbums(): Promise<Album[]> {
 // two artists each with a "Greatest Hits") — omit it to get the union.
 export async function getAlbumTracks(album: string, artist?: string): Promise<Track[]> {
   const query = artist ? `?artist=${encodeURIComponent(artist)}` : '';
-  const res = await fetch(apiUrl(`/api/albums/${encodeURIComponent(album)}/tracks${query}`));
+  const res = await request(`/api/albums/${encodeURIComponent(album)}/tracks${query}`);
   if (!res.ok) {
     throw new Error(`failed to fetch album tracks: ${res.status}`);
   }
@@ -145,9 +225,9 @@ export async function getAlbumTracks(album: string, artist?: string): Promise<Tr
 }
 
 export function streamUrl(id: number): string {
-  return apiUrl(`/api/tracks/${id}/stream`);
+  return withToken(apiUrl(`/api/tracks/${id}/stream`));
 }
 
 export function artworkUrl(id: number): string {
-  return apiUrl(`/api/tracks/${id}/artwork`);
+  return withToken(apiUrl(`/api/tracks/${id}/artwork`));
 }

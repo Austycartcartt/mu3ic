@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-27
 
 One-line state of the project: which phase is active, what's done, what's next. Update this whenever a phase changes status — it's the first thing to read to get oriented.
 
@@ -9,10 +9,10 @@ One-line state of the project: which phase is active, what's done, what's next. 
 | # | Phase | Status | Notes |
 |---|-------|--------|-------|
 | 1 | [Thin Vertical Slice](PHASE-1-thin-vertical-slice.md) | Complete | 2026-07-14 |
-| 2 | [Upload & Metadata (Reworked Uploader)](PHASE-2-upload-and-metadata.md) | Complete | |
-| 3 | [Audio Player UI](PHASE-3-audio-player-ui.md) | Planned | |
+| 2 | [Upload & Metadata (Reworked Uploader)](PHASE-2-upload-and-metadata.md) | Complete | Incl. album_artist (`004`) + track numbers (`005`), through 2026-08-23 |
+| 3 | [Audio Player UI](PHASE-3-audio-player-ui.md) | Planned | Player, menu & dock code already landed ahead of a formal pass |
 | 4 | [Background Playback & Lock-Screen Controls](PHASE-4-background-playback.md) | Planned | Requires a custom Expo dev build (no Expo Go) |
-| 5 | [Authentication](PHASE-5-authentication.md) | **In Progress** | Started 2026-07-17 |
+| 5 | [Authentication](PHASE-5-authentication.md) | Complete | 2026-08-27 — JWT, email login, per-user libraries |
 | 6 | [Playlists & Search](PHASE-6-playlists-search.md) | Planned | Not yet scoped |
 | 7 | [Bulk Import (Watch Folder + rclone)](PHASE-7-bulk-import.md) | **In Progress** | Smart filename parsing + folder upload shipped 2026-08-21; watch-folder/rclone not yet scoped |
 | 8 | [Deployment](PHASE-8-deployment.md) | Planned | Not yet scoped |
@@ -20,7 +20,7 @@ One-line state of the project: which phase is active, what's done, what's next. 
 
 ## Active phase
 
-**Phase 5: Authentication.** See [PHASE-5-authentication.md](PHASE-5-authentication.md) for the plan.
+**Phase 7: Bulk Import** (watch-folder / rclone piece — still needs scoping), or a formal **Phase 3** pass over the already-shipped player UI. Phase 5 (Authentication) shipped 2026-08-27: JWT sessions, email login/registration, `withAuth` middleware, and every track/artist/album query scoped to the logged-in user. See [DECISIONS.md](DECISIONS.md) for the auth entry.
 
 ## Architecture decisions
 

@@ -10,17 +10,17 @@ import (
 )
 
 func TestHandleListAlbums_SameTitleDifferentArtist(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
 	// Two different artists each with an album literally titled "Greatest
 	// Hits" must produce two distinct rows, not one merged row — proves
 	// ListAlbums groups by (album, artist), not album alone.
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist A", Album: "Greatest Hits"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist B", Album: "Greatest Hits"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist A", Album: "Greatest Hits"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist B", Album: "Greatest Hits"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/albums", nil)
 	rec := httptest.NewRecorder()
-	s.handleListAlbums(rec, req)
+	s.handleListAlbums(rec, reqAs(user.ID, req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -43,19 +43,19 @@ func TestHandleListAlbums_SameTitleDifferentArtist(t *testing.T) {
 }
 
 func TestHandleListAlbums_VariousArtistsCompilation(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
 	// A various-artists compilation: same album, same explicit AlbumArtist,
 	// but a different per-track Artist on every row (e.g. from filename
 	// parsing during a bulk folder upload). This must collapse into a
 	// single album row, not one row per distinct track artist — that was
 	// the bug: grouping by (album, artist) instead of (album, album_artist).
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Aeikus", Album: "Going Deeper, Vol. 7", AlbumArtist: "Various Artists", Title: "Cataracta"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Other DJ", Album: "Going Deeper, Vol. 7", AlbumArtist: "Various Artists", Title: "Another Track"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Aeikus", Album: "Going Deeper, Vol. 7", AlbumArtist: "Various Artists", Title: "Cataracta"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Other DJ", Album: "Going Deeper, Vol. 7", AlbumArtist: "Various Artists", Title: "Another Track"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/albums", nil)
 	rec := httptest.NewRecorder()
-	s.handleListAlbums(rec, req)
+	s.handleListAlbums(rec, reqAs(user.ID, req))
 
 	var albums []store.AlbumSummary
 	if err := json.Unmarshal(rec.Body.Bytes(), &albums); err != nil {
@@ -83,7 +83,7 @@ func TestHandleListAlbums_VariousArtistsCompilation(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/albums/x/tracks?artist=Various+Artists", nil)
 	req.SetPathValue("name", "Going Deeper, Vol. 7")
 	rec = httptest.NewRecorder()
-	s.handleAlbumTracks(rec, req)
+	s.handleAlbumTracks(rec, reqAs(user.ID, req))
 
 	var tracks []store.Track
 	if err := json.Unmarshal(rec.Body.Bytes(), &tracks); err != nil {
@@ -95,16 +95,16 @@ func TestHandleListAlbums_VariousArtistsCompilation(t *testing.T) {
 }
 
 func TestHandleAlbumTracks_ArtistDisambiguation(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist A", Album: "Greatest Hits", Title: "A Song"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist B", Album: "Greatest Hits", Title: "B Song"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist A", Album: "Greatest Hits", Title: "A Song"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist B", Album: "Greatest Hits", Title: "B Song"})
 
 	// With ?artist= given, only that artist's tracks come back.
 	req := httptest.NewRequest(http.MethodGet, "/api/albums/x/tracks?artist=Artist+A", nil)
 	req.SetPathValue("name", "Greatest Hits")
 	rec := httptest.NewRecorder()
-	s.handleAlbumTracks(rec, req)
+	s.handleAlbumTracks(rec, reqAs(user.ID, req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -121,7 +121,7 @@ func TestHandleAlbumTracks_ArtistDisambiguation(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/albums/x/tracks", nil)
 	req.SetPathValue("name", "Greatest Hits")
 	rec = httptest.NewRecorder()
-	s.handleAlbumTracks(rec, req)
+	s.handleAlbumTracks(rec, reqAs(user.ID, req))
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &tracks); err != nil {
 		t.Fatalf("decoding response: %v", err)
@@ -132,14 +132,14 @@ func TestHandleAlbumTracks_ArtistDisambiguation(t *testing.T) {
 }
 
 func TestHandleListAlbums_ArtworkRepresentative(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist C", Album: "Mixed Artwork", Title: "No Art"})
-	withArt := insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist C", Album: "Mixed Artwork", Title: "Has Art", ArtworkExt: ".png"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist C", Album: "Mixed Artwork", Title: "No Art"})
+	withArt := insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist C", Album: "Mixed Artwork", Title: "Has Art", ArtworkExt: ".png"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/albums", nil)
 	rec := httptest.NewRecorder()
-	s.handleListAlbums(rec, req)
+	s.handleListAlbums(rec, reqAs(user.ID, req))
 
 	var albums []store.AlbumSummary
 	if err := json.Unmarshal(rec.Body.Bytes(), &albums); err != nil {

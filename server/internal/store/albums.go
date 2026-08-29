@@ -21,14 +21,15 @@ type AlbumSummary struct {
 	HasArtwork            bool   `json:"hasArtwork"`
 }
 
-func (s *Store) ListAlbums(ctx context.Context) ([]AlbumSummary, error) {
+func (s *Store) ListAlbums(ctx context.Context, userID int64) ([]AlbumSummary, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT album, album_artist, COUNT(*) AS track_count,
 		        (ARRAY_AGG(id ORDER BY (artwork_ext IS NOT NULL) DESC, id))[1] AS representative_track_id,
 		        BOOL_OR(artwork_ext IS NOT NULL) AS has_artwork
 		 FROM tracks
+		 WHERE user_id = $1
 		 GROUP BY album, album_artist
-		 ORDER BY album, album_artist`)
+		 ORDER BY album, album_artist`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("listing albums: %w", err)
 	}
@@ -56,11 +57,11 @@ func (s *Store) ListAlbums(ctx context.Context) ([]AlbumSummary, error) {
 // against album_artist, not each track's own artist, so a various-artists
 // compilation's tracks (each with a different artist, sharing one
 // album_artist) all come back together.
-func (s *Store) ListTracksByAlbum(ctx context.Context, album string, albumArtist string) ([]Track, error) {
+func (s *Store) ListTracksByAlbum(ctx context.Context, userID int64, album string, albumArtist string) ([]Track, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+trackColumns+` FROM tracks
-		 WHERE album = $1 AND ($2 = '' OR album_artist = $2)
-		 ORDER BY track_number NULLS LAST, title`, album, albumArtist)
+		 WHERE user_id = $1 AND album = $2 AND ($3 = '' OR album_artist = $3)
+		 ORDER BY track_number NULLS LAST, title`, userID, album, albumArtist)
 	if err != nil {
 		return nil, fmt.Errorf("listing tracks for album %q: %w", album, err)
 	}

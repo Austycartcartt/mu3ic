@@ -1,6 +1,8 @@
 # Phase 5: Authentication
 
-**Status:** In Progress (started 2026-07-17)
+**Status:** Complete (2026-08-27)
+
+**What shipped vs. this plan:** login is by **email**, not username (`users.email UNIQUE`); `users.id` is `BIGSERIAL`, not UUID (matches `tracks.id`); the stream/artwork routes are `/api/tracks/{id}/{stream,artwork}`, not `/api/stream/:id`. One `withAuth` middleware accepts the token from either the `Authorization: Bearer` header or a `?token=` query param. Registration is open. See the "JWT auth" entry in [DECISIONS.md](DECISIONS.md) for the full record.
 
 ## Goal
 
@@ -551,22 +553,22 @@ curl http://localhost:8080/api/stream/track-uuid?token=<YOUR_TOKEN> \
 
 ## Implementation Checklist
 
-- [ ] Add `users` table to schema
-- [ ] Add `user_id` column to `tracks` table
-- [ ] Install `golang-jwt/jwt/v5`
-- [ ] Implement token generation + verification functions
-- [ ] Add `POST /api/auth/register` endpoint
-- [ ] Add `POST /api/auth/login` endpoint
-- [ ] Protect `GET /api/tracks` with token verification
-- [ ] Protect `GET /api/stream/:id` with token verification + ownership check
-- [ ] Update `POST /api/tracks` to associate with logged-in user
-- [ ] Install `expo-secure-store` on frontend
-- [ ] Implement AuthContext + useAuth hook
-- [ ] Build login/register screens
-- [ ] Update navigation to show login when no token
-- [ ] Update track list to attach token to requests
-- [ ] Update audio player to construct stream URL with token
-- [ ] Test end-to-end (register → login → upload → stream)
+- [x] Add `users` table to schema (`006_users.sql`)
+- [x] Add `user_id` column to `tracks` table (`007_tracks_user_id.sql`, destructive — wipes existing rows)
+- [x] Install `golang-jwt/jwt/v5` and `golang.org/x/crypto/bcrypt`
+- [x] Implement token generation + verification functions (`internal/auth`)
+- [x] Add `POST /api/auth/register` endpoint
+- [x] Add `POST /api/auth/login` endpoint
+- [x] Protect `GET /api/tracks` with token verification (`withAuth` middleware + `s.protected`)
+- [x] Protect `GET /api/tracks/{id}/stream` (+ `/artwork`) with token verification + ownership check (scoped `GetTrack`)
+- [x] Update `POST /api/tracks` to associate with logged-in user (`IngestFile` takes `userID`)
+- [x] Install `expo-secure-store` on frontend (with a `localStorage` fallback for web)
+- [x] Implement AuthContext + useAuth hook (`app/src/hooks/useAuth.tsx`)
+- [x] Build login/register screens (`app/src/app/(auth)/`)
+- [x] Update navigation to show login when no token (`<Redirect>` guards in the group layouts + `upload.tsx`)
+- [x] Update track list to attach token to requests (`client.ts` module token + `Authorization` header)
+- [x] Update audio player to construct stream URL with token (`streamUrl`/`artworkUrl` append `?token=`)
+- [x] Test end-to-end (register → login → upload → stream; server unit + curl, app typecheck/lint/export)
 
 ---
 

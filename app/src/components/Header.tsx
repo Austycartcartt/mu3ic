@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useAuth } from '@/hooks/useAuth';
 import { theme } from '@/theme/theme';
 
 type Action = {
@@ -12,14 +13,24 @@ type Props = {
   action?: Action;
 };
 
-// No auth yet (Phase 5), so the user icon is a static placeholder — no
-// avatar image, no icon library, just a letter in a circle.
+// The avatar is a letter in a circle (no avatar image, no icon library) —
+// the logged-in user's email initial. Tapping it offers to log out.
 export function Header({ title, action }: Props) {
+  const { user, logout } = useAuth();
+  const initial = user?.email?.[0]?.toUpperCase() ?? '?';
+
+  function confirmLogout() {
+    Alert.alert('Log out?', user?.email ?? '', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log out', style: 'destructive', onPress: () => void logout() },
+    ]);
+  }
+
   return (
     <View style={styles.container}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>U</Text>
-      </View>
+      <Pressable style={styles.avatar} onPress={confirmLogout} accessibilityLabel="Account menu">
+        <Text style={styles.avatarText}>{initial}</Text>
+      </Pressable>
       <Text style={styles.title} numberOfLines={1}>
         {title}
       </Text>

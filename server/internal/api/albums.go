@@ -3,7 +3,7 @@ package api
 import "net/http"
 
 func (s *Server) handleListAlbums(w http.ResponseWriter, r *http.Request) {
-	albums, err := s.store.ListAlbums(r.Context())
+	albums, err := s.store.ListAlbums(r.Context(), userIDFromContext(r.Context()))
 	if err != nil {
 		s.logger.Error("listing albums", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list albums")
@@ -20,7 +20,7 @@ func (s *Server) handleListAlbums(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAlbumTracks(w http.ResponseWriter, r *http.Request) {
 	album := r.PathValue("name")
 	artist := r.URL.Query().Get("artist")
-	tracks, err := s.store.ListTracksByAlbum(r.Context(), album, artist)
+	tracks, err := s.store.ListTracksByAlbum(r.Context(), userIDFromContext(r.Context()), album, artist)
 	if err != nil {
 		s.logger.Error("listing tracks by album", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list album tracks")

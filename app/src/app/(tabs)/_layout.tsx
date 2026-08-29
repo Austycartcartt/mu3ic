@@ -1,8 +1,9 @@
 import { BottomTabBar, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Text } from 'react-native';
 
 import { PlayerDock } from '@/components/PlayerDock';
+import { useAuth } from '@/hooks/useAuth';
 
 function TabIcon({ glyph }: { glyph: string }) {
   return <Text style={{ fontSize: 20 }}>{glyph}</Text>;
@@ -21,6 +22,14 @@ function TabBarWithPlayerDock(props: BottomTabBarProps) {
 }
 
 export default function TabLayout() {
+  const { token, isLoading } = useAuth();
+
+  // Wait for the persisted-token check, then send logged-out users to the
+  // auth stack. Hitting "/" resolves into (tabs), so this guard is what
+  // makes an unauthenticated launch land on the login screen.
+  if (isLoading) return null;
+  if (!token) return <Redirect href="/login" />;
+
   return (
     <Tabs
       screenOptions={{ headerShown: false }}

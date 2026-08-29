@@ -18,13 +18,14 @@ import (
 )
 
 // testServer wires a Server against the real dev Postgres (see
-// docker-compose.yml) and a temp-dir file store, applying migrations fresh.
+// docker-compose.yml) and a temp-dir file store, applying migrations fresh,
+// and creates one throwaway user that owns everything the test inserts.
 // The artwork handler's behavior depends on both a real DB row (for
 // HasArtwork) and a real file on disk (for ArtworkPath), so a lightweight
 // fake would end up re-implementing both — not worth it for one handler.
 // Skips instead of failing if Postgres isn't reachable, since this is a
 // personal-scale project without a CI Postgres service.
-func testServer(t *testing.T) (*Server, *sql.DB, string) {
+func testServer(t *testing.T) (*Server, *sql.DB, string, store.User) {
 	t.Helper()
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -55,19 +56,59 @@ func testServer(t *testing.T) (*Server, *sql.DB, string) {
 	cfg := library.Config{LibraryDir: libraryDir}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	return NewServer(store.New(db), storage, cfg, logger), db, libraryDir
+	s := NewServer(store.New(db), storage, cfg, logger, "test-secret")
+
+	user := createTestUser(t, s, db, uniqueEmail(t))
+	return s, db, libraryDir, user
 }
 
-// insertTestTrack inserts a track (generating a fresh UUID storage key)
-// and registers a cleanup to delete that single row afterward, so this
+// uniqueEmail returns an address unlikely to collide with a concurrent or
+// prior test run, so createTestUser's INSERT never trips the UNIQUE
+// constraint on users.email.
+func uniqueEmail(t *testing.T) string {
+	t.Helper()
+	key, err := library.NewUUID()
+	if err != nil {
+		t.Fatalf("generating unique email: %v", err)
+	}
+	return key + "@example.test"
+}
+
+// createTestUser inserts a user row and registers a cleanup that deletes
+// it — ON DELETE CASCADE takes its tracks with it, so per-test data never
+// lingers in the shared dev DB.
+func createTestUser(t *testing.T, s *Server, db *sql.DB, email string) store.User {
+	t.Helper()
+	user, err := s.store.CreateUser(context.Background(), email, "not-a-real-hash")
+	if err != nil {
+		t.Fatalf("creating test user: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := db.Exec(`DELETE FROM users WHERE id = $1`, user.ID); err != nil {
+			t.Errorf("cleaning up test user %d: %v", user.ID, err)
+		}
+	})
+	return user
+}
+
+// reqAs returns req with userID injected into its context the way withAuth
+// would, so a handler can be called directly in a test without routing
+// through the auth middleware.
+func reqAs(userID int64, req *http.Request) *http.Request {
+	return req.WithContext(context.WithValue(req.Context(), userIDKey, userID))
+}
+
+// insertTestTrack inserts a track owned by userID (generating a fresh UUID
+// storage key) and registers a cleanup to delete that single row, so this
 // test never leaves rows behind in the shared dev DB.
-func insertTestTrack(t *testing.T, s *Server, db *sql.DB, nt store.NewTrack) store.Track {
+func insertTestTrack(t *testing.T, s *Server, db *sql.DB, userID int64, nt store.NewTrack) store.Track {
 	t.Helper()
 
 	storageKey, err := library.NewUUID()
 	if err != nil {
 		t.Fatalf("generating storage key: %v", err)
 	}
+	nt.UserID = userID
 	nt.StorageKey = storageKey
 	if nt.OriginalFilename == "" {
 		nt.OriginalFilename = "test.mp3"
@@ -92,16 +133,16 @@ func insertTestTrack(t *testing.T, s *Server, db *sql.DB, nt store.NewTrack) sto
 }
 
 func TestHandleArtwork(t *testing.T) {
-	s, db, libraryDir := testServer(t)
+	s, db, libraryDir, user := testServer(t)
 
 	t.Run("404 when track has no artwork", func(t *testing.T) {
-		track := insertTestTrack(t, s, db, store.NewTrack{})
+		track := insertTestTrack(t, s, db, user.ID, store.NewTrack{})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/tracks/x/artwork", nil)
 		req.SetPathValue("id", strconv.FormatInt(track.ID, 10))
 		rec := httptest.NewRecorder()
 
-		s.handleArtwork(rec, req)
+		s.handleArtwork(rec, reqAs(user.ID, req))
 
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -109,7 +150,7 @@ func TestHandleArtwork(t *testing.T) {
 	})
 
 	t.Run("200 with artwork bytes when present", func(t *testing.T) {
-		track := insertTestTrack(t, s, db, store.NewTrack{ArtworkExt: ".png"})
+		track := insertTestTrack(t, s, db, user.ID, store.NewTrack{ArtworkExt: ".png"})
 
 		// Writing the artwork's storage_key.png sibling file directly here
 		// mirrors what IngestFile does on ingest — Storage itself no
@@ -124,7 +165,7 @@ func TestHandleArtwork(t *testing.T) {
 		req.SetPathValue("id", strconv.FormatInt(track.ID, 10))
 		rec := httptest.NewRecorder()
 
-		s.handleArtwork(rec, req)
+		s.handleArtwork(rec, reqAs(user.ID, req))
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -134,6 +175,21 @@ func TestHandleArtwork(t *testing.T) {
 		}
 		if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
 			t.Errorf("Content-Type = %q, want %q", ct, "image/png")
+		}
+	})
+
+	t.Run("404 when the track belongs to another user", func(t *testing.T) {
+		track := insertTestTrack(t, s, db, user.ID, store.NewTrack{ArtworkExt: ".png"})
+		other := createTestUser(t, s, db, uniqueEmail(t))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/tracks/x/artwork", nil)
+		req.SetPathValue("id", strconv.FormatInt(track.ID, 10))
+		rec := httptest.NewRecorder()
+
+		s.handleArtwork(rec, reqAs(other.ID, req))
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 		}
 	})
 }

@@ -10,15 +10,15 @@ import (
 )
 
 func TestHandleListArtists(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist A", Album: "Album 1"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist A", Album: "Album 2"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Artist B", Album: "Album 3"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist A", Album: "Album 1"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist A", Album: "Album 2"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Artist B", Album: "Album 3"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/artists", nil)
 	rec := httptest.NewRecorder()
-	s.handleListArtists(rec, req)
+	s.handleListArtists(rec, reqAs(user.ID, req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -42,16 +42,16 @@ func TestHandleListArtists(t *testing.T) {
 }
 
 func TestHandleArtistTracks(t *testing.T) {
-	s, db, _ := testServer(t)
+	s, db, _, user := testServer(t)
 
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Wanted Artist", Title: "Song 1"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Wanted Artist", Title: "Song 2"})
-	insertTestTrack(t, s, db, store.NewTrack{Artist: "Other Artist", Title: "Song 3"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Wanted Artist", Title: "Song 1"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Wanted Artist", Title: "Song 2"})
+	insertTestTrack(t, s, db, user.ID, store.NewTrack{Artist: "Other Artist", Title: "Song 3"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/artists/x/tracks", nil)
 	req.SetPathValue("name", "Wanted Artist")
 	rec := httptest.NewRecorder()
-	s.handleArtistTracks(rec, req)
+	s.handleArtistTracks(rec, reqAs(user.ID, req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -72,12 +72,12 @@ func TestHandleArtistTracks(t *testing.T) {
 }
 
 func TestHandleArtistTracks_UnknownArtist(t *testing.T) {
-	s, _, _ := testServer(t)
+	s, _, _, user := testServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/artists/x/tracks", nil)
 	req.SetPathValue("name", "Nobody Ever Uploaded This Artist")
 	rec := httptest.NewRecorder()
-	s.handleArtistTracks(rec, req)
+	s.handleArtistTracks(rec, reqAs(user.ID, req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

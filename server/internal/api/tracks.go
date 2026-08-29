@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	tracks, err := s.store.ListTracks(r.Context())
+	tracks, err := s.store.ListTracks(r.Context(), userIDFromContext(r.Context()))
 	if err != nil {
 		s.logger.Error("listing tracks", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list tracks")
@@ -25,7 +25,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	track, err := s.store.GetTrack(r.Context(), id)
+	// GetTrack is scoped to the caller, so someone else's track id looks
+	// exactly like a missing one — both land here as a 404.
+	track, err := s.store.GetTrack(r.Context(), id, userIDFromContext(r.Context()))
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "track not found")
 		return

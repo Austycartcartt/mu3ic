@@ -17,7 +17,7 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	track, err := s.store.GetTrack(r.Context(), id)
+	track, err := s.store.GetTrack(r.Context(), id, userIDFromContext(r.Context()))
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "track not found")
 		return

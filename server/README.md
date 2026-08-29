@@ -27,21 +27,35 @@ That's it — migrations in `migrations/` are applied automatically on startup. 
 | `DATABASE_URL` | `postgres://mu3ic:mu3ic@localhost:5432/mu3ic?sslmode=disable` |
 | `DATA_DIR` | `./data` |
 | `MIGRATIONS_DIR` | `./migrations` |
+| `JWT_SECRET` | `dev-secret-change-in-production` (logs a warning when unset) — **set this to a random string before exposing the server** |
 
 ## Trying it out
 
+Every endpoint except `/api/health` and `/api/auth/*` now requires a bearer
+token. Register (or log in) to get one:
+
 ```bash
-# health check
+# health check (public)
 curl localhost:8080/api/health
 
+# register — returns {"id", "email", "token", "expiresAt"}
+curl -X POST localhost:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"password123"}'
+
+TOKEN=<paste the token>
+
 # upload a file
-curl -F "audio=@/path/to/song.mp3;type=audio/mpeg" localhost:8080/api/tracks
+curl -F "audio=@/path/to/song.mp3;type=audio/mpeg" \
+  -H "Authorization: Bearer $TOKEN" localhost:8080/api/tracks
 
-# list tracks
-curl localhost:8080/api/tracks
+# list your tracks
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/tracks
 
-# stream (supports Range requests / 206 Partial Content)
-curl -v -H "Range: bytes=0-1023" localhost:8080/api/tracks/1/stream -o /dev/null
+# stream (supports Range requests / 206 Partial Content). The audio player
+# can't set headers, so /stream and /artwork also accept ?token=
+curl -v -H "Range: bytes=0-1023" \
+  "localhost:8080/api/tracks/1/stream?token=$TOKEN" -o /dev/null
 ```
 
 ## Tests

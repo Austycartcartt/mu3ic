@@ -36,6 +36,12 @@ func main() {
 	dataDir := getEnv("DATA_DIR", "./data")
 	migrationsDir := getEnv("MIGRATIONS_DIR", "./migrations")
 
+	const devJWTSecret = "dev-secret-change-in-production"
+	jwtSecret := getEnv("JWT_SECRET", devJWTSecret)
+	if jwtSecret == devJWTSecret {
+		logger.Warn("JWT_SECRET not set, using an insecure development default; set JWT_SECRET before deploying")
+	}
+
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		logger.Error("opening database", "error", err)
@@ -66,7 +72,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := api.NewServer(store.New(db), storage, cfg, logger)
+	srv := api.NewServer(store.New(db), storage, cfg, logger, jwtSecret)
 
 	httpServer := &http.Server{
 		Addr:    "0.0.0.0:" + port,

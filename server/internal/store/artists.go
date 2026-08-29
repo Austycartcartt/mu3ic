@@ -13,9 +13,9 @@ type ArtistSummary struct {
 	TrackCount int    `json:"track_count"`
 }
 
-func (s *Store) ListArtists(ctx context.Context) ([]ArtistSummary, error) {
+func (s *Store) ListArtists(ctx context.Context, userID int64) ([]ArtistSummary, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT artist, COUNT(*) AS track_count FROM tracks GROUP BY artist ORDER BY artist`)
+		`SELECT artist, COUNT(*) AS track_count FROM tracks WHERE user_id = $1 GROUP BY artist ORDER BY artist`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("listing artists: %w", err)
 	}
@@ -37,9 +37,9 @@ func (s *Store) ListArtists(ctx context.Context) ([]ArtistSummary, error) {
 
 // ListTracksByArtist orders by album, then track_number (untagged tracks
 // sort after any tagged track within the album) then title as a fallback.
-func (s *Store) ListTracksByArtist(ctx context.Context, artist string) ([]Track, error) {
+func (s *Store) ListTracksByArtist(ctx context.Context, userID int64, artist string) ([]Track, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+trackColumns+` FROM tracks WHERE artist = $1 ORDER BY album, track_number NULLS LAST, title`, artist)
+		`SELECT `+trackColumns+` FROM tracks WHERE user_id = $1 AND artist = $2 ORDER BY album, track_number NULLS LAST, title`, userID, artist)
 	if err != nil {
 		return nil, fmt.Errorf("listing tracks for artist %q: %w", artist, err)
 	}

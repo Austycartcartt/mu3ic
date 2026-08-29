@@ -31,9 +31,11 @@ type Track struct {
 }
 
 // NewTrack is the set of fields IngestFile has in hand once it's ready to
-// insert a row: the UUID storage key, resolved mime type, extracted/
-// fallback-applied metadata, and (if present) the artwork file extension.
+// insert a row: the owning user, UUID storage key, resolved mime type,
+// extracted/fallback-applied metadata, and (if present) the artwork file
+// extension.
 type NewTrack struct {
+	UserID           int64
 	StorageKey       string
 	MimeType         string
 	OriginalFilename string
@@ -120,10 +122,10 @@ func (s *Store) InsertTrack(ctx context.Context, nt NewTrack) (Track, error) {
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`INSERT INTO tracks (storage_key, mime_type, original_filename, size, title, artist, album, album_artist, track_number, artwork_ext)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO tracks (user_id, storage_key, mime_type, original_filename, size, title, artist, album, album_artist, track_number, artwork_ext)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+trackColumns,
-		nt.StorageKey, nt.MimeType, nt.OriginalFilename, nt.Size,
+		nt.UserID, nt.StorageKey, nt.MimeType, nt.OriginalFilename, nt.Size,
 		nt.Title, nt.Artist, nt.Album, albumArtist, nullableTrackNumber(nt.TrackNumber), nullableString(nt.ArtworkExt),
 	)
 	track, err := scanTrack(row)
@@ -146,9 +148,9 @@ func nullableTrackNumber(n int) sql.NullInt32 {
 	return sql.NullInt32{Int32: int32(n), Valid: n > 0}
 }
 
-func (s *Store) ListTracks(ctx context.Context) ([]Track, error) {
+func (s *Store) ListTracks(ctx context.Context, userID int64) ([]Track, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+trackColumns+` FROM tracks ORDER BY id`)
+		`SELECT `+trackColumns+` FROM tracks WHERE user_id = $1 ORDER BY id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("listing tracks: %w", err)
 	}
@@ -168,9 +170,12 @@ func (s *Store) ListTracks(ctx context.Context) ([]Track, error) {
 	return tracks, nil
 }
 
-func (s *Store) GetTrack(ctx context.Context, id int64) (Track, error) {
+// GetTrack scopes the lookup to userID, so requesting another user's
+// track id is indistinguishable from requesting one that doesn't exist —
+// both return sql.ErrNoRows, which the stream/artwork handlers map to 404.
+func (s *Store) GetTrack(ctx context.Context, id, userID int64) (Track, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+trackColumns+` FROM tracks WHERE id = $1`, id)
+		`SELECT `+trackColumns+` FROM tracks WHERE id = $1 AND user_id = $2`, id, userID)
 	track, err := scanTrack(row)
 	if err != nil {
 		return Track{}, fmt.Errorf("getting track %d: %w", id, err)

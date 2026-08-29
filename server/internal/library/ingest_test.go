@@ -14,11 +14,12 @@ import (
 )
 
 // testStore wires a *store.Store against the real dev Postgres (see
-// docker-compose.yml), applying migrations fresh. Skips instead of
-// failing if Postgres isn't reachable, matching the pattern in
-// internal/api/artwork_test.go — this is a personal-scale project
-// without a CI Postgres service.
-func testStore(t *testing.T) (*store.Store, *sql.DB) {
+// docker-compose.yml), applying migrations fresh, and creates one
+// throwaway user to own the tracks the test ingests (tracks.user_id is
+// NOT NULL since Phase 5). Skips instead of failing if Postgres isn't
+// reachable, matching the pattern in internal/api/artwork_test.go — this
+// is a personal-scale project without a CI Postgres service.
+func testStore(t *testing.T) (st *store.Store, db *sql.DB, userID int64) {
 	t.Helper()
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -41,7 +42,23 @@ func testStore(t *testing.T) (*store.Store, *sql.DB) {
 		t.Fatalf("running migrations: %v", err)
 	}
 
-	return store.New(db), db
+	st = store.New(db)
+
+	emailKey, err := NewUUID()
+	if err != nil {
+		t.Fatalf("generating test user email: %v", err)
+	}
+	user, err := st.CreateUser(ctx, emailKey+"@example.test", "not-a-real-hash")
+	if err != nil {
+		t.Fatalf("creating test user: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := db.Exec(`DELETE FROM users WHERE id = $1`, user.ID); err != nil {
+			t.Errorf("cleaning up test user %d: %v", user.ID, err)
+		}
+	})
+
+	return st, db, user.ID
 }
 
 // stageFixture copies a testdata fixture into cfg's temp dir, since
@@ -87,11 +104,11 @@ func cleanupTrack(t *testing.T, db *sql.DB, id int64) {
 }
 
 func TestIngestFile_TaggedWithArtwork(t *testing.T) {
-	st, db := testStore(t)
+	st, db, userID := testStore(t)
 	cfg := newTestConfig(t)
 	srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
+	track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -130,11 +147,11 @@ func TestIngestFile_TaggedWithArtwork(t *testing.T) {
 }
 
 func TestIngestFile_Untagged(t *testing.T) {
-	st, db := testStore(t)
+	st, db, userID := testStore(t)
 	cfg := newTestConfig(t)
 	srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
+	track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -155,13 +172,13 @@ func TestIngestFile_Untagged(t *testing.T) {
 }
 
 func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
-	st, db := testStore(t)
+	st, db, userID := testStore(t)
 
 	t.Run("full override replaces tag data", func(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Title:  "Overridden Title",
 			Artist: "Overridden Artist",
 			Album:  "Overridden Album",
@@ -186,7 +203,7 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Artist: "Overridden Artist",
 		})
 		if err != nil {
@@ -209,7 +226,7 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{
 			Artist: "   ", // whitespace-only counts as unset
 		})
 		if err != nil {
@@ -226,7 +243,7 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -241,7 +258,7 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Artist:      "Track Artist",
 			AlbumArtist: "Various Artists",
 		})
@@ -260,13 +277,13 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 }
 
 func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
-	st, db := testStore(t)
+	st, db, userID := testStore(t)
 
 	t.Run("declared mime type wins", func(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "audio/flac", Overrides{})
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.flac", "audio/flac", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -284,7 +301,7 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 		cfg := newTestConfig(t)
 		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, srcPath, "tagged.flac", "", Overrides{})
+		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.flac", "", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -297,14 +314,14 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 }
 
 func TestIngestFile_InsertFailureCleansUpFile(t *testing.T) {
-	st, _ := testStore(t)
+	st, _, userID := testStore(t)
 	cfg := newTestConfig(t)
 	srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // force InsertTrack to fail
 
-	_, err := IngestFile(ctx, st, cfg, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
+	_, err := IngestFile(ctx, st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err == nil {
 		t.Fatal("IngestFile() error = nil, want non-nil for a canceled context")
 	}

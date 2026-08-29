@@ -14,10 +14,12 @@ import (
 
 // IngestFile takes a file already on local disk, extracts its metadata,
 // moves it into the library under a new UUID storage key, and inserts a
-// track row. It is the single entry point for adding music to the
-// library — the HTTP upload handler is one caller; a future watch-folder
-// scanner will be another. Contains no http.Request or other HTTP types,
-// so it's callable directly from a test with just a path.
+// track row owned by userID. It is the single entry point for adding
+// music to the library — the HTTP upload handler is one caller (passing
+// the authenticated user); a future watch-folder scanner will be another
+// (and will need to decide which user a scanned file belongs to).
+// Contains no http.Request or other HTTP types, so it's callable directly
+// from a test with just a path.
 //
 // Overrides carries caller-supplied title/artist/album/albumArtist/
 // trackNumber values (e.g. from the upload preview screen's filename-parsed,
@@ -44,7 +46,7 @@ type Overrides struct {
 // signal) — used as the primary source for the stored mime type, since
 // content sniffing alone misclassifies several audio formats (see
 // resolveMimeType).
-func IngestFile(ctx context.Context, st *store.Store, cfg Config, srcPath, originalFilename, declaredMimeType string, overrides Overrides) (store.Track, error) {
+func IngestFile(ctx context.Context, st *store.Store, cfg Config, userID int64, srcPath, originalFilename, declaredMimeType string, overrides Overrides) (store.Track, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return store.Track{}, fmt.Errorf("opening source file: %w", err)
@@ -134,6 +136,7 @@ func IngestFile(ctx context.Context, st *store.Store, cfg Config, srcPath, origi
 	}
 
 	track, err := st.InsertTrack(ctx, store.NewTrack{
+		UserID:           userID,
 		StorageKey:       storageKey,
 		MimeType:         mimeType,
 		OriginalFilename: originalFilename,

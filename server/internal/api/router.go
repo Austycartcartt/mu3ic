@@ -13,14 +13,15 @@ import (
 
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
-	store   *store.Store
-	storage library.Storage
-	cfg     library.Config
-	logger  *slog.Logger
+	store     *store.Store
+	storage   library.Storage
+	cfg       library.Config
+	logger    *slog.Logger
+	jwtSecret string
 }
 
-func NewServer(st *store.Store, storage library.Storage, cfg library.Config, logger *slog.Logger) *Server {
-	return &Server{store: st, storage: storage, cfg: cfg, logger: logger}
+func NewServer(st *store.Store, storage library.Storage, cfg library.Config, logger *slog.Logger, jwtSecret string) *Server {
+	return &Server{store: st, storage: storage, cfg: cfg, logger: logger, jwtSecret: jwtSecret}
 }
 
 // Router builds the HTTP handler tree. Go 1.22+'s http.ServeMux supports
@@ -28,15 +29,24 @@ func NewServer(st *store.Store, storage library.Storage, cfg library.Config, log
 // chi) is needed for routes this simple.
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
+
+	// Public: health and the two auth endpoints (you can't have a token yet).
 	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("POST /api/tracks", s.handleUpload)
-	mux.HandleFunc("GET /api/tracks", s.handleList)
-	mux.HandleFunc("GET /api/tracks/{id}/stream", s.handleStream)
-	mux.HandleFunc("GET /api/tracks/{id}/artwork", s.handleArtwork)
-	mux.HandleFunc("GET /api/artists", s.handleListArtists)
-	mux.HandleFunc("GET /api/artists/{name}/tracks", s.handleArtistTracks)
-	mux.HandleFunc("GET /api/albums", s.handleListAlbums)
-	mux.HandleFunc("GET /api/albums/{name}/tracks", s.handleAlbumTracks)
+	mux.HandleFunc("POST /api/auth/register", s.handleRegister)
+	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+
+	// Everything else requires a valid token. s.protected wraps each
+	// handler in withAuth, which puts the caller's user id in the request
+	// context for the handler to scope its queries by.
+	mux.Handle("POST /api/tracks", s.protected(s.handleUpload))
+	mux.Handle("GET /api/tracks", s.protected(s.handleList))
+	mux.Handle("GET /api/tracks/{id}/stream", s.protected(s.handleStream))
+	mux.Handle("GET /api/tracks/{id}/artwork", s.protected(s.handleArtwork))
+	mux.Handle("GET /api/artists", s.protected(s.handleListArtists))
+	mux.Handle("GET /api/artists/{name}/tracks", s.protected(s.handleArtistTracks))
+	mux.Handle("GET /api/albums", s.protected(s.handleListAlbums))
+	mux.Handle("GET /api/albums/{name}/tracks", s.protected(s.handleAlbumTracks))
+
 	return s.withLogging(s.withCORS(mux))
 }
 
@@ -49,15 +59,17 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 }
 
 // withCORS allows the Expo web client (served from a different origin/port
-// than the API) to call this server from the browser. There's no
-// auth/cookies involved, so reflecting any Origin is safe here.
+// than the API) to call this server from the browser. Auth is via a
+// bearer token in the Authorization header (or a ?token= query param for
+// the stream/artwork URLs the audio player fetches), never cookies, so
+// reflecting any Origin without Allow-Credentials is safe here.
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

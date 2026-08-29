@@ -1,5 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useState } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { uploadTrack } from '@/api/client';
 import { Header } from '@/components/Header';
 import { PlayerDock } from '@/components/PlayerDock';
+import { useAuth } from '@/hooks/useAuth';
 import { theme } from '@/theme/theme';
 import { parseFilename } from '@/utils/parseFilename';
 
@@ -80,6 +81,7 @@ function buildPreviewRows(files: PickedFile[]): PreviewRow[] {
 }
 
 export default function UploadScreen() {
+  const { token, isLoading } = useAuth();
   const [status, setStatus] = useState<Status>('idle');
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   // Applies to every file in this batch, not per-row like title/artist/
@@ -163,6 +165,9 @@ export default function UploadScreen() {
       await deactivateKeepAwake();
     }
   }
+
+  // This screen sits outside (tabs), so it needs its own auth guard.
+  if (!isLoading && !token) return <Redirect href="/login" />;
 
   return (
     <SafeAreaView style={styles.container}>
