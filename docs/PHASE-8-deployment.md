@@ -83,9 +83,9 @@ and email flows are **later phases** on the road to a full public launch
 - **Monitoring:** external uptime check on the `mu3ic-api` `/api/health`
   URL; Render's own logs/metrics for the service;
   `neon logs query --source storage` for the bucket.
-- **Deploys:** `autoDeploy: true` in `render.yaml` — push to the tracked
-  branch and Render rebuilds. Migrations run on server start (advisory
-  lock serialized).
+- **Deploys:** `autoDeployTrigger: commit` in `render.yaml` — push to the
+  tracked branch and Render rebuilds. Migrations run on server start
+  (advisory lock serialized).
 
 ## Verification
 

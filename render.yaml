@@ -28,7 +28,7 @@ services:
     region: ohio            # same AWS region as the Neon project (us-east-2)
     plan: free              # bump to "starter" for always-on (free spins down after 15 min idle)
     healthCheckPath: /api/health   # does a real 2s DB ping — a 200 means Neon is reachable
-    autoDeploy: true
+    autoDeployTrigger: commit      # rebuild on every push to the tracked branch
     envVars:
       # Render injects PORT; main.go already reads it (falls back to 8080).
       - key: DATA_DIR
@@ -67,7 +67,7 @@ services:
     runtime: static
     buildCommand: cd app && npm ci && npx expo export -p web
     staticPublishPath: app/dist
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       # The API origin the web build is baked against. This is Render's
       # default hostname for the `mu3ic-api` service above. If that name

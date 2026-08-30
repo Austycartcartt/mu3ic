@@ -37,12 +37,24 @@ The production topology: the app runs on **Render**, all state lives on
   **`us-east-2`** — Neon Object Storage is a public beta and serves only
   that region.
 - A **Render** account connected to this GitHub repo.
-- Local tooling (only needed to fetch connection values):
+- Local tooling:
   - Neon CLI — `npm i -g neon`, then `neon auth`. (Invoked as `neon`.)
+  - Render CLI — `brew install render` or
+    `curl -fsSL https://raw.githubusercontent.com/render-oss/cli/refs/heads/main/bin/install.sh | sh`,
+    then `render login` and `render workspace set`. Optional but used
+    for blueprint validation (step 3a) and log tailing (step 6); the
+    whole deploy can also be done from the Dashboard.
   - `openssl` for secret generation, and the AWS CLI (`aws`) for the
     bucket CORS rule in step 4b.
 - The code committed and pushed to the branch Render will track
   (`main`).
+
+> This repo has the **Render Claude Code plugin** installed
+> (`/plugin install render@claude-plugins-official`): the
+> `render:render-*` skills, a `render:render-assistant` agent, and a
+> Render MCP server. Handy for authoring/validating `render.yaml` and
+> driving deploys from Claude, but not required — this runbook is
+> self-contained.
 
 Two host names are used throughout. With the service names in
 `render.yaml` and no global name collision, Render assigns:
@@ -162,9 +174,28 @@ Everything else the API needs is non-secret and already in `render.yaml`:
 
 ## 3. Deploy the Render blueprint
 
+### 3a. Validate `render.yaml` first
+
+```bash
+render blueprints validate        # defaults to ./render.yaml; needs Render CLI ≥ 2.7
+```
+
+Fix any schema or semantic errors before the Dashboard tries to apply
+it. What the current blueprint declares:
+
+| Service     | `type` / `runtime` | Notes |
+|-------------|--------------------|-------|
+| `mu3ic-api` | `web` / `docker`   | `dockerfilePath: ./server/Dockerfile`, `dockerContext: ./server`, `region: ohio`, `plan: free`, `healthCheckPath: /api/health`, `autoDeployTrigger: commit` |
+| `mu3ic-web` | `web` / `static`   | `buildCommand` runs `expo export -p web`, `staticPublishPath: app/dist`, SPA rewrite to `/index.html`, immutable cache on `/_expo/*` |
+
+`type` and `runtime` are **immutable** after first create — changing
+either later means deleting and recreating the service.
+
+### 3b. Apply the blueprint (Dashboard)
+
 1. Render dashboard → **New** → **Blueprint**.
-2. Pick this repo. Render reads `render.yaml` and shows two services:
-   `mu3ic-api` (Docker) and `mu3ic-web` (static site).
+2. Pick this repo. Render reads `render.yaml` and shows `mu3ic-api` and
+   `mu3ic-web`.
 3. It prompts for each `sync: false` var on `mu3ic-api` — paste the five
    values from `deploy/.env`. `mu3ic-web`'s `EXPO_PUBLIC_API_URL` is
    already inlined in `render.yaml` as `https://mu3ic-api.onrender.com`,
@@ -173,11 +204,27 @@ Everything else the API needs is non-secret and already in `render.yaml`:
 4. **Apply**. First build takes a few minutes each (Go compile for the
    API; `npm ci` + `expo export` for the web bundle).
 
-Watch `mu3ic-api` logs for:
+The blueprint creates the services and their first deploy. After that,
+`autoDeployTrigger: commit` rebuilds on every push to the tracked
+branch; there is no CLI command that creates services from a blueprint —
+that is Dashboard-only (or the Render MCP `create_services` flow).
+
+### 3c. Watch the first deploy
+
+Dashboard → `mu3ic-api` → Logs, or from the terminal once the service
+exists:
+
+```bash
+render services                       # find the service id (srv-…)
+render logs -r srv-xxxxxxxxxxxx --tail
+```
+
+Look for:
 
 ```
-running migrations … applied migration 00X …
-starting server  addr=0.0.0.0:10000
+level=INFO msg="running migrations"
+level=INFO msg="applied migration 00X_…"
+level=INFO msg="starting server" addr=0.0.0.0:10000   # Render sets $PORT
 ```
 
 Render marks the service healthy once `GET /api/health` returns `200` —
@@ -272,15 +319,31 @@ Then, end to end:
 
 ## 6. Operations
 
-**Deploys.** `autoDeploy: true` — push to the tracked branch and Render
-rebuilds both services. Migrations run automatically on `mu3ic-api`
-start, serialized by the `pg_advisory_lock`.
+**Deploys.** `autoDeployTrigger: commit` — push to the tracked branch and
+Render rebuilds both services. Migrations run automatically on
+`mu3ic-api` start, serialized by the `pg_advisory_lock`. To deploy
+out of band (e.g. a rollback to a known commit):
+
+```bash
+render deploys create srv-xxxxxxxxxxxx --commit <sha> --wait --confirm -o json
+render deploys list   srv-xxxxxxxxxxxx -o json        # history / status
+```
+
+Blueprint changes (edits to `render.yaml`) sync on the next push, or via
+the Dashboard's **Blueprint → Sync**.
 
 **Logs.**
-- API: Render dashboard → `mu3ic-api` → Logs (structured `slog` lines,
-  one per request with `X-Request-Id`, method, path, status, duration).
+- API: `render logs -r srv-xxxxxxxxxxxx --tail`, or Dashboard →
+  `mu3ic-api` → Logs. Structured `slog` lines, one per request with
+  `X-Request-Id`, method, path, status, duration.
 - Storage: `neon logs query --source storage --since 1h` (add `--branch
   production` if `.neon` points elsewhere). Needs Neon CLI ≥ 3.1.
+- `render ssh srv-xxxxxxxxxxxx` for a shell in the running container
+  (`--ephemeral` for an isolated one).
+
+**Database access.** Postgres is on Neon, not Render, so `render psql`
+does not apply — use `neon connection-string` + `psql`, the Neon
+console SQL editor, or the Neon MCP server.
 
 **Monitoring.** Point an external uptime check (UptimeRobot,
 healthchecks.io, …) at `https://mu3ic-api.onrender.com/api/health` and
