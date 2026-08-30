@@ -301,18 +301,23 @@ CORS problem and not, say, a wrong `EXPO_PUBLIC_API_URL`.
 curl https://mu3ic-api.onrender.com/api/health          # {"status":"ok"}
 ```
 
-Registration is closed, but the **first** account is always allowed as a
-bootstrap (zero-users check), no invite code needed:
+Create the first account. **When `REGISTRATION_INVITE_CODE` is set (it is
+on this deployment), every registration needs the code — including the
+first one.** The zero-users bootstrap only kicks in when no invite code
+is configured at all. The web signup form has no invite-code field, so
+do the first account with `curl`:
 
 ```bash
 curl -X POST https://mu3ic-api.onrender.com/api/auth/register \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"a-good-password"}'
+  -d '{"email":"you@example.com","password":"a-good-password","inviteCode":"<REGISTRATION_INVITE_CODE from deploy/.env>"}'
 ```
 
-After that, `POST /api/auth/register` returns `403` unless the body
-carries `"inviteCode"` matching `REGISTRATION_INVITE_CODE`. Hand that
-code to pilot users.
+A `201` with a token means it worked — then log in through the web app
+normally (login never needs the code). A `403 "a valid invite code is
+required"` means the code doesn't match: check the value pasted into the
+Render `mu3ic-api` env var against `deploy/.env` (it may have been
+clipped on paste). Hand the same code to pilot users.
 
 Then, end to end:
 

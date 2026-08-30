@@ -108,17 +108,18 @@ Open `https://music.example.com/` — the web app should load.
 
 ## 8. Create the first user
 
-Registration is closed, but the **first** account is allowed as a
-bootstrap:
+If `.env` sets `REGISTRATION_INVITE_CODE` (the template does), **every**
+registration needs it — the zero-users bootstrap only applies when no
+code is configured. The first account:
 
 ```bash
 curl -X POST https://music.example.com/api/auth/register \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"a-good-password"}'
+  -d '{"email":"you@example.com","password":"a-good-password","inviteCode":"<REGISTRATION_INVITE_CODE>"}'
 ```
 
-After that, `POST /api/auth/register` returns `403` unless the request
-body carries an `inviteCode` matching `REGISTRATION_INVITE_CODE`. That
+`POST /api/auth/register` returns `403` for any request whose body lacks
+an `inviteCode` matching `REGISTRATION_INVITE_CODE`. That
 value is already set in `.env`, so hand the code to pilot users. It's read
 at server startup — if you change it later, run `docker compose up -d` to
 recreate the server container.

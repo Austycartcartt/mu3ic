@@ -1,9 +1,10 @@
 # Phase 8: Deployment
 
-**Status:** In progress — private-pilot infrastructure. The Render + Neon
-deployment is fully described in `render.yaml` and self-wiring (Render's
-default `*.onrender.com` hostnames are pinned); the first blueprint
-deploy is the remaining step (2026-08-29).
+**Status:** In progress — private-pilot infrastructure. **Deployed to
+Render + Neon on 2026-08-30**: `mu3ic-api` and `mu3ic-web` are live at
+their default `*.onrender.com` hostnames, `/api/health` is green,
+migrations applied. Remaining: an end-to-end upload/stream check and the
+bootstrap user.
 
 ## Goal
 
@@ -64,8 +65,11 @@ and email flows are **later phases** on the road to a full public launch
 - `JWT_SECRET` is now **fatal** if unset, the old dev default, or < 32
   chars (was a warning).
 - Registration is **closed** by default: `REGISTRATION_INVITE_CODE` gates
-  new accounts (constant-time compare), with a zero-users first-run
-  bootstrap so a fresh deployment can create its first account.
+  new accounts (constant-time compare). A zero-users first-run bootstrap
+  lets a fresh deployment create its first account with no code — but
+  **only when `REGISTRATION_INVITE_CODE` is unset**; if it's set, even
+  the first account must send the code (and the web form has no invite
+  field, so that first one is a `curl`).
 - The two auth endpoints are rate-limited per client IP (hand-rolled token
   bucket); `X-Real-IP` is trusted only when `TRUST_PROXY=true`.
 - `/api/health` now does a 2s database ping and returns `503
@@ -93,16 +97,29 @@ and email flows are **later phases** on the road to a full public launch
 API image. The Neon backends were verified live from the real Go code
 paths: a pgx `SELECT version()` against the `production` branch, and a
 `NeonStorage` Put → PresignGet (HTTP 200) → Open → Delete round-trip
-against the `mu3ic-audio` bucket. Still outstanding: the first
-`render.yaml` blueprint deploy — the blueprint is complete and
-self-wiring (`EXPO_PUBLIC_API_URL` is pinned to the default
-`https://mu3ic-api.onrender.com`), so a deploy needs only the `sync:
-false` secrets pasted in. Then two post-deploy steps: add the
-`mu3ic-audio` bucket CORS rule (`GET,HEAD` from
-`https://mu3ic-web.onrender.com`, or whatever hostname Render assigns
-the web service), and verify end to end — register the bootstrap user
-and confirm an upload → presigned `302` → playback round-trip from the
-web client.
+against the `mu3ic-audio` bucket.
+
+**Deployed 2026-08-30** via the `render.yaml` blueprint. Both services
+got Render's default hostnames (no name collision):
+`https://mu3ic-api.onrender.com` and `https://mu3ic-web.onrender.com`.
+`mu3ic-api` is `live`, `/api/health` returns `200 {"status":"ok"}`
+(so the Neon DB ping succeeds), and migrations `001`–`008` applied
+against the fresh Neon Postgres on first boot. `mu3ic-web` serves `200`.
+
+Snags hit on the way (fixed, and folded into `DEPLOY-RENDER-NEON.md`):
+- The `DATABASE_URL` pasted into Render was clipped one char short
+  (`sslmode=requir`), so the server `os.Exit(1)`'d on boot — re-pasting
+  the full value fixed it.
+- `render.yaml` used the deprecated `autoDeploy: true`; changed to
+  `autoDeployTrigger: commit`.
+- The "first account with no invite code" bootstrap only applies when
+  `REGISTRATION_INVITE_CODE` is **unset**. With a code configured, the
+  first account also needs it, and the web form has no invite field, so
+  the bootstrap account is created via `curl` with `"inviteCode"`.
+
+Still outstanding: end-to-end upload → presigned `302` → playback from
+the web client, and the `mu3ic-audio` bucket CORS rule only if that
+playback shows a browser CORS error.
 
 ## Deferred (later phases)
 
