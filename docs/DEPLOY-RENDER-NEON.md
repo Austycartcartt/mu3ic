@@ -39,11 +39,18 @@ The production topology: the app runs on **Render**, all state lives on
 - A **Render** account connected to this GitHub repo.
 - Local tooling:
   - Neon CLI — `npm i -g neon`, then `neon auth`. (Invoked as `neon`.)
-  - Render CLI — `brew install render` or
-    `curl -fsSL https://raw.githubusercontent.com/render-oss/cli/refs/heads/main/bin/install.sh | sh`,
-    then `render login` and `render workspace set`. Optional but used
-    for blueprint validation (step 3a) and log tailing (step 6); the
-    whole deploy can also be done from the Dashboard.
+  - Render CLI — on Linux, either run
+    `curl -fsSL https://raw.githubusercontent.com/render-oss/cli/refs/heads/main/bin/install.sh | sh`
+    (as a normal user it installs to `~/.local/bin/render`; as root, to
+    `/usr/local/bin`), or do it by hand — download
+    `cli_<ver>_linux_amd64.zip` from
+    https://github.com/render-oss/cli/releases, `unzip` it, and
+    `install -m 0755 cli_v<ver> ~/.local/bin/render`. Needs `curl`,
+    `unzip`, `sed`. Make sure `~/.local/bin` is on your `PATH`.
+    (`brew install render` is the macOS path.) Then `render login`
+    (opens a browser) and `render workspace set`. Optional but used for
+    blueprint validation (step 3a) and log tailing (step 6); the whole
+    deploy can also be done from the Dashboard.
   - `openssl` for secret generation, and the AWS CLI (`aws`) for the
     bucket CORS rule in step 4b.
 - The code committed and pushed to the branch Render will track
