@@ -19,3 +19,6 @@ deploy/backups/
 # Editors / OS
 .DS_Store
 .neon
+*.swp
+*.swo
+*~
