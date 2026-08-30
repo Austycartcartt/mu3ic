@@ -22,6 +22,13 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// Ping checks that the database is reachable. Used by the /api/health
+// handler so an uptime monitor catches a server that's up but has lost
+// its database.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 // migrationsLockID is an arbitrary constant identifying the Postgres
 // session-level advisory lock RunMigrations holds while it works. Any
 // value works as long as nothing else in this app uses the same one.

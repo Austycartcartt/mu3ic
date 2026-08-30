@@ -44,6 +44,32 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (Use
 	return u, nil
 }
 
+// CreateFirstUser inserts a new account only if the users table is
+// currently empty, in a single statement so two concurrent callers can't
+// both win. It returns sql.ErrNoRows when a user already exists (the
+// conditional INSERT matched no rows), which the register handler maps to
+// "registration is closed". This is the bootstrap path: a fresh
+// deployment has registration closed but no accounts, so the operator can
+// still create the first one, after which an invite code is required.
+func (s *Store) CreateFirstUser(ctx context.Context, email, passwordHash string) (User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash)
+		 SELECT $1, $2
+		 WHERE NOT EXISTS (SELECT 1 FROM users)
+		 RETURNING id, email, password_hash, created_at`,
+		email, passwordHash,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return User{}, ErrEmailTaken
+		}
+		return User{}, err
+	}
+	return u, nil
+}
+
 // GetUserByEmail looks up an account for login. A missing row comes back
 // as sql.ErrNoRows, which the login handler treats the same as a wrong
 // password (no user enumeration).

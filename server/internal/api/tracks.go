@@ -1,8 +1,13 @@
 package api
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/Austycartcartt/mu3ic/server/internal/library"
 )
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -15,9 +20,11 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tracks)
 }
 
-// handleStream serves the raw audio file via http.ServeContent, which
-// parses Range headers and returns 206 Partial Content automatically —
-// no hand-rolled range parsing needed.
+// handleStream serves a track's audio. When the storage backend can
+// presign (R2), it 302-redirects the client to a short-lived direct URL
+// so the bytes never transit this server. Otherwise (filesystem) it
+// serves them via http.ServeContent, which parses Range headers and
+// returns 206 Partial Content automatically.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -33,25 +40,38 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.storage.Open(track.StorageKey)
+	s.serveObject(w, r, track.StorageKey, track.MimeType, track.UploadedAt)
+}
+
+// serveObject streams (or redirects to) a stored object. contentType is
+// authoritative — it's set from the DB, since storage keys are bare
+// UUIDs with no extension to sniff and the DB value was resolved once at
+// ingest time. modTime is the DB timestamp (stable across backends) used
+// as the cache validator on the filesystem path.
+func (s *Server) serveObject(w http.ResponseWriter, r *http.Request, key, contentType string, modTime time.Time) {
+	if p, ok := s.storage.(library.Presigner); ok {
+		url, err := p.PresignGet(r.Context(), key, contentType, s.streamURLTTL)
+		if err != nil {
+			s.logger.Error("presigning object url", "error", err, "key", key)
+			writeJSONError(w, http.StatusInternalServerError, "failed to open track")
+			return
+		}
+		http.Redirect(w, r, url, http.StatusFound)
+		return
+	}
+
+	obj, err := s.storage.Open(r.Context(), key)
 	if err != nil {
-		s.logger.Error("opening track file", "error", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeJSONError(w, http.StatusNotFound, "track not found")
+			return
+		}
+		s.logger.Error("opening object", "error", err, "key", key)
 		writeJSONError(w, http.StatusInternalServerError, "failed to open track")
 		return
 	}
-	defer file.Close()
+	defer obj.Close()
 
-	info, err := file.Stat()
-	if err != nil {
-		s.logger.Error("stat track file", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to read track")
-		return
-	}
-
-	// Content-Type comes from the DB, not from sniffing the filename —
-	// storage keys are bare UUIDs with no extension for ServeContent to
-	// go on, and the DB value is authoritative anyway (resolved once, at
-	// ingest time, from the multipart header + content sniffing).
-	w.Header().Set("Content-Type", track.MimeType)
-	http.ServeContent(w, r, "", info.ModTime(), file)
+	w.Header().Set("Content-Type", contentType)
+	http.ServeContent(w, r, "", modTime, obj)
 }

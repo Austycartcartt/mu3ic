@@ -10,24 +10,36 @@ Go backend: stdlib `net/http`, `database/sql` (via `pgx`), no ORM, no web framew
 ## Setup
 
 ```bash
-# from the repo root
-docker compose up -d
+# from the repo root — start.sh also exports a dev JWT_SECRET
+./start.sh
 
+# ...or run the server directly:
+docker compose up -d
 cd server
-go run ./cmd/server
+JWT_SECRET=dev-secret-not-for-production-0123456789abcdef go run ./cmd/server
 ```
 
-That's it — migrations in `migrations/` are applied automatically on startup. The server listens on `0.0.0.0:8080` (configurable via `PORT`), so it's reachable from other devices on your LAN as well as `localhost`.
+That's it — migrations in `migrations/` are applied automatically on startup.
+`JWT_SECRET` is required (see Config below); everything else has a dev default. The server listens on `0.0.0.0:8080` (configurable via `PORT`), so it's reachable from other devices on your LAN as well as `localhost`.
 
-### Config (env vars, all optional)
+### Config (env vars)
 
-| Var | Default |
-|---|---|
-| `PORT` | `8080` |
-| `DATABASE_URL` | `postgres://mu3ic:mu3ic@localhost:5432/mu3ic?sslmode=disable` |
-| `DATA_DIR` | `./data` |
-| `MIGRATIONS_DIR` | `./migrations` |
-| `JWT_SECRET` | `dev-secret-change-in-production` (logs a warning when unset) — **set this to a random string before exposing the server** |
+| Var | Default | Notes |
+|---|---|---|
+| `PORT` | `8080` | |
+| `DATABASE_URL` | `postgres://mu3ic:mu3ic@localhost:5432/mu3ic?sslmode=disable` | |
+| `DATA_DIR` | `./data` | upload staging; also the object dir when `STORAGE_BACKEND=fs` |
+| `MIGRATIONS_DIR` | `./migrations` | |
+| `JWT_SECRET` | — | **required**; server exits if unset, the old dev default, or < 32 chars |
+| `STORAGE_BACKEND` | `fs` | `fs` (local files), `neon` (Neon Object Storage), or `r2` (Cloudflare R2); both object backends use presigned streaming |
+| `AWS_ENDPOINT_URL_S3` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `NEON_STORAGE_BUCKET` | — | required when `STORAGE_BACKEND=neon` (`AWS_*` come from `neon env pull`; `AWS_REGION` optional, defaults to `us-east-2`) |
+| `R2_ENDPOINT` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | — | required when `STORAGE_BACKEND=r2` |
+| `STREAM_URL_TTL` | `15m` | lifetime of presigned stream/artwork URLs |
+| `REGISTRATION_OPEN` | `false` | `true` lets anyone register (dev/staging only) |
+| `REGISTRATION_INVITE_CODE` | — | when set, `register` requires a matching `inviteCode`; the first account is always allowed |
+| `TRUST_PROXY` | `false` | `true` reads the client IP from `X-Real-IP` (set only behind a trusted proxy) |
+
+For local dev, `./start.sh` exports a throwaway `JWT_SECRET` for you.
 
 ## Trying it out
 

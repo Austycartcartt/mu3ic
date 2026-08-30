@@ -9,5 +9,10 @@ app/dist/
 app/.env
 app/.env.local
 
+# Deployment secrets / local backup artifacts
+deploy/.env
+deploy/backups/
+
 # Editors / OS
 .DS_Store
+.neon

@@ -1,0 +1,7 @@
+# Local audio/artwork storage — never belongs in a build context.
+data/
+# Locally built binary.
+mu3ic-server
+# Tests and fixtures don't ship in the image.
+**/*_test.go
+**/testdata/

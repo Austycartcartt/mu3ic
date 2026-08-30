@@ -20,12 +20,17 @@ import (
 // testServer wires a Server against the real dev Postgres (see
 // docker-compose.yml) and a temp-dir file store, applying migrations fresh,
 // and creates one throwaway user that owns everything the test inserts.
-// The artwork handler's behavior depends on both a real DB row (for
-// HasArtwork) and a real file on disk (for ArtworkPath), so a lightweight
-// fake would end up re-implementing both — not worth it for one handler.
+// The artwork/stream handlers' behavior depends on both a real DB row and
+// a real object on disk, so a lightweight fake would end up
+// re-implementing both — not worth it for these handlers.
+//
+// Registration defaults to Open so the credential-flow tests can create
+// users freely against the shared dev DB; pass a mutator to exercise the
+// invite-code / first-user-bootstrap paths.
+//
 // Skips instead of failing if Postgres isn't reachable, since this is a
 // personal-scale project without a CI Postgres service.
-func testServer(t *testing.T) (*Server, *sql.DB, string, store.User) {
+func testServer(t *testing.T, mut ...func(*Options)) (*Server, *sql.DB, string, store.User) {
 	t.Helper()
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -53,10 +58,20 @@ func testServer(t *testing.T) (*Server, *sql.DB, string, store.User) {
 	if err != nil {
 		t.Fatalf("initializing storage: %v", err)
 	}
-	cfg := library.Config{LibraryDir: libraryDir}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	s := NewServer(store.New(db), storage, cfg, logger, "test-secret")
+	opts := Options{
+		Store:        store.New(db),
+		Storage:      storage,
+		Config:       library.Config{LibraryDir: libraryDir},
+		Logger:       logger,
+		JWTSecret:    "test-secret",
+		Registration: RegistrationPolicy{Open: true},
+	}
+	for _, m := range mut {
+		m(&opts)
+	}
+	s := NewServer(opts)
 
 	user := createTestUser(t, s, db, uniqueEmail(t))
 	return s, db, libraryDir, user

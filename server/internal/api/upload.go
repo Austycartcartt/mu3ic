@@ -137,7 +137,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	track, err := library.IngestFile(r.Context(), s.store, s.cfg, userIDFromContext(r.Context()), tmpPath, originalFilename, declared, overrides)
+	track, err := library.IngestFile(r.Context(), s.store, s.storage, userIDFromContext(r.Context()), tmpPath, originalFilename, declared, overrides)
 	if err != nil {
 		s.logger.Error("ingesting file", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save track")

@@ -1,16 +1,20 @@
 # Phase 7: Bulk Import (Watch Folder + rclone)
 
-**Status:** In Progress
+**Status:** Skipped (2026-08-28)
 
-## Goal
+## Why skipped
+
+The watch-folder / rclone / duplicate-detection piece was attempted on 2026-08-28 and abandoned — it added a lot of surface area (a scan endpoint, a content-hash migration, an rclone wrapper script, dedup logic) for a one-off library migration that a manual `curl` loop against the existing upload endpoint already covers. The WIP is parked on the **`bulk-upload`** branch (commit `de82a1c`, "WIP bulk upload") and is **not** being merged into `main`. If bulk import comes back, start from that branch as a reference, not as-is.
+
+The filename-parsing + folder-upload work below shipped 2026-08-21, is on `main`, and stays — it's the part of this phase that was worth keeping.
+
+## Original goal (not pursued)
 
 Bulk library import, deferred from the Phase 2 uploader rework:
 
 - Watch-folder scan endpoint on the server — walk a directory, ingest each file through the same `IngestFile` tag-extraction path established in Phase 2 (see [PHASE-2-upload-and-metadata.md](PHASE-2-upload-and-metadata.md))
 - `rclone` copy from Google Drive into the watch folder; iCloud via a one-time browser export
 - Background upload sessions, retry/resume, and duplicate detection also live in this phase
-
-The watch-folder/rclone piece above is not yet broken down into an implementation plan.
 
 ## Done: smart filename parsing + folder upload (2026-08-21)
 

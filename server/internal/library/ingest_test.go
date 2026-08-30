@@ -61,10 +61,29 @@ func testStore(t *testing.T) (st *store.Store, db *sql.DB, userID int64) {
 	return st, db, user.ID
 }
 
-// stageFixture copies a testdata fixture into cfg's temp dir, since
-// IngestFile renames (consumes) its source file and the original fixture
-// must survive for other tests.
-func stageFixture(t *testing.T, cfg Config, fixture string) string {
+// ingestFixture is a FileStorage-backed library plus a staging dir, the
+// two things every IngestFile test needs. libDir is where FileStorage
+// keeps objects, so tests can stat dir/<storage_key> directly.
+type ingestFixture struct {
+	storage *FileStorage
+	libDir  string
+	stage   string
+}
+
+func newIngestFixture(t *testing.T) ingestFixture {
+	t.Helper()
+	libDir := t.TempDir()
+	storage, err := NewFileStorage(libDir)
+	if err != nil {
+		t.Fatalf("creating file storage: %v", err)
+	}
+	return ingestFixture{storage: storage, libDir: libDir, stage: t.TempDir()}
+}
+
+// stageFixture copies a testdata fixture into the staging dir and returns
+// its path. IngestFile copies from (does not consume) this file, so the
+// original testdata fixture is untouched.
+func (f ingestFixture) stageFixture(t *testing.T, fixture string) string {
 	t.Helper()
 
 	src, err := os.Open(fixture)
@@ -73,7 +92,7 @@ func stageFixture(t *testing.T, cfg Config, fixture string) string {
 	}
 	defer src.Close()
 
-	dst, err := os.CreateTemp(cfg.TempDir(), "ingest-test-*")
+	dst, err := os.CreateTemp(f.stage, "ingest-test-*")
 	if err != nil {
 		t.Fatalf("creating staged file: %v", err)
 	}
@@ -83,15 +102,6 @@ func stageFixture(t *testing.T, cfg Config, fixture string) string {
 		t.Fatalf("staging fixture: %v", err)
 	}
 	return dst.Name()
-}
-
-func newTestConfig(t *testing.T) Config {
-	t.Helper()
-	cfg := Config{LibraryDir: t.TempDir()}
-	if err := os.MkdirAll(cfg.TempDir(), 0o755); err != nil {
-		t.Fatalf("creating temp dir: %v", err)
-	}
-	return cfg
 }
 
 func cleanupTrack(t *testing.T, db *sql.DB, id int64) {
@@ -105,10 +115,10 @@ func cleanupTrack(t *testing.T, db *sql.DB, id int64) {
 
 func TestIngestFile_TaggedWithArtwork(t *testing.T) {
 	st, db, userID := testStore(t)
-	cfg := newTestConfig(t)
-	srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+	f := newIngestFixture(t)
+	srcPath := f.stageFixture(t, "testdata/tagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
+	track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -130,28 +140,28 @@ func TestIngestFile_TaggedWithArtwork(t *testing.T) {
 		t.Fatal("HasArtwork = false, want true")
 	}
 
-	audioPath := filepath.Join(cfg.LibraryDir, track.StorageKey)
+	audioPath := filepath.Join(f.libDir, track.StorageKey)
 	if _, err := os.Stat(audioPath); err != nil {
-		t.Errorf("audio file missing at %s: %v", audioPath, err)
+		t.Errorf("audio object missing at %s: %v", audioPath, err)
 	}
-	artworkPath := filepath.Join(cfg.LibraryDir, track.StorageKey+track.ArtworkExt)
+	artworkPath := filepath.Join(f.libDir, track.StorageKey+track.ArtworkExt)
 	if _, err := os.Stat(artworkPath); err != nil {
-		t.Errorf("artwork file missing at %s: %v", artworkPath, err)
+		t.Errorf("artwork object missing at %s: %v", artworkPath, err)
 	}
 
-	if entries, err := os.ReadDir(cfg.TempDir()); err != nil {
-		t.Errorf("reading temp dir: %v", err)
-	} else if len(entries) != 0 {
-		t.Errorf("temp dir not empty after ingest: %v", entries)
+	// IngestFile copies from the staged file rather than consuming it —
+	// the caller (the upload handler) owns cleanup.
+	if _, err := os.Stat(srcPath); err != nil {
+		t.Errorf("staged file should still exist after ingest: %v", err)
 	}
 }
 
 func TestIngestFile_Untagged(t *testing.T) {
 	st, db, userID := testStore(t)
-	cfg := newTestConfig(t)
-	srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
+	f := newIngestFixture(t)
+	srcPath := f.stageFixture(t, "testdata/untagged.mp3")
 
-	track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
+	track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err != nil {
 		t.Fatalf("IngestFile() error = %v", err)
 	}
@@ -175,10 +185,10 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 	st, db, userID := testStore(t)
 
 	t.Run("full override replaces tag data", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Title:  "Overridden Title",
 			Artist: "Overridden Artist",
 			Album:  "Overridden Album",
@@ -200,10 +210,10 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 	})
 
 	t.Run("partial override only replaces the set field", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Artist: "Overridden Artist",
 		})
 		if err != nil {
@@ -223,10 +233,10 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 	})
 
 	t.Run("blank override leaves filename fallback untouched", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/untagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{
 			Artist: "   ", // whitespace-only counts as unset
 		})
 		if err != nil {
@@ -240,10 +250,10 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 	})
 
 	t.Run("no album artist override falls back to the track's own artist", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -255,10 +265,10 @@ func TestIngestFile_OverridesReplaceTagsAndFallback(t *testing.T) {
 	})
 
 	t.Run("album artist override applies independently of artist", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.mp3")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.mp3")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.mp3", "audio/mpeg", Overrides{
 			Artist:      "Track Artist",
 			AlbumArtist: "Various Artists",
 		})
@@ -280,10 +290,10 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 	st, db, userID := testStore(t)
 
 	t.Run("declared mime type wins", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.flac", "audio/flac", Overrides{})
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.flac", "audio/flac", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -298,10 +308,10 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 		// FLAC isn't in http.DetectContentType's sniff table, so with no
 		// declared type this must fall through to the extension map
 		// rather than landing on application/octet-stream.
-		cfg := newTestConfig(t)
-		srcPath := stageFixture(t, cfg, "testdata/tagged.flac")
+		f := newIngestFixture(t)
+		srcPath := f.stageFixture(t, "testdata/tagged.flac")
 
-		track, err := IngestFile(context.Background(), st, cfg, userID, srcPath, "tagged.flac", "", Overrides{})
+		track, err := IngestFile(context.Background(), st, f.storage, userID, srcPath, "tagged.flac", "", Overrides{})
 		if err != nil {
 			t.Fatalf("IngestFile() error = %v", err)
 		}
@@ -313,26 +323,24 @@ func TestIngestFile_FlacMimeTypeResolution(t *testing.T) {
 	})
 }
 
-func TestIngestFile_InsertFailureCleansUpFile(t *testing.T) {
+func TestIngestFile_InsertFailureCleansUpObjects(t *testing.T) {
 	st, _, userID := testStore(t)
-	cfg := newTestConfig(t)
-	srcPath := stageFixture(t, cfg, "testdata/untagged.mp3")
+	f := newIngestFixture(t)
+	srcPath := f.stageFixture(t, "testdata/untagged.mp3")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // force InsertTrack to fail
 
-	_, err := IngestFile(ctx, st, cfg, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
+	_, err := IngestFile(ctx, st, f.storage, userID, srcPath, "untagged.mp3", "audio/mpeg", Overrides{})
 	if err == nil {
 		t.Fatal("IngestFile() error = nil, want non-nil for a canceled context")
 	}
 
-	entries, err := os.ReadDir(cfg.LibraryDir)
+	entries, err := os.ReadDir(f.libDir)
 	if err != nil {
 		t.Fatalf("reading library dir: %v", err)
 	}
-	for _, e := range entries {
-		if e.Name() != "tmp" {
-			t.Errorf("leftover file in library dir after failed insert: %s", e.Name())
-		}
+	if len(entries) != 0 {
+		t.Errorf("objects left in library dir after failed insert: %v", entries)
 	}
 }

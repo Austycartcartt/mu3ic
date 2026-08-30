@@ -1,0 +1,88 @@
+# Render blueprint for mu3ic — https://render.com/docs/blueprint-spec
+#
+# Two services (default Render hostnames, assuming the names are free):
+#   mu3ic-api  — the Go backend, built from server/Dockerfile
+#                -> https://mu3ic-api.onrender.com
+#   mu3ic-web  — the Expo web export, served as a static site
+#                -> https://mu3ic-web.onrender.com  (the demo URL)
+# If a name collides globally Render appends a suffix; update
+# EXPO_PUBLIC_API_URL below and the Neon bucket CORS origin to match.
+#
+# Postgres and object storage are NOT defined here: both are on Neon
+# (project sweet-star-53712486, branch "production", region us-east-2).
+# Render only runs the app and talks out to Neon.
+#
+# Secrets are declared with `sync: false` — Render prompts for each value
+# on first deploy and stores it encrypted. The values to paste live in
+# deploy/.env (gitignored). Non-secret config is inlined below.
+
+services:
+  # ---------------------------------------------------------------
+  # Go API
+  # ---------------------------------------------------------------
+  - type: web
+    name: mu3ic-api
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    region: ohio            # same AWS region as the Neon project (us-east-2)
+    plan: free              # bump to "starter" for always-on (free spins down after 15 min idle)
+    healthCheckPath: /api/health   # does a real 2s DB ping — a 200 means Neon is reachable
+    autoDeploy: true
+    envVars:
+      # Render injects PORT; main.go already reads it (falls back to 8080).
+      - key: DATA_DIR
+        value: /tmp/mu3ic          # upload staging only; ephemeral is fine, bytes go to Neon
+      - key: STORAGE_BACKEND
+        value: neon
+      - key: NEON_STORAGE_BUCKET
+        value: mu3ic-audio
+      - key: AWS_ENDPOINT_URL_S3
+        value: https://br-cool-dew-aytkwyv4.storage.c-5.us-east-2.aws.neon.tech
+      - key: AWS_REGION
+        value: us-east-2
+      - key: REGISTRATION_OPEN
+        value: "false"
+      - key: TRUST_PROXY
+        value: "true"             # Render terminates TLS in front of the service
+      - key: STREAM_URL_TTL
+        value: 15m
+      # --- secrets: paste from deploy/.env on first deploy ---
+      - key: DATABASE_URL          # Neon DIRECT (non-pooler) string
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: REGISTRATION_INVITE_CODE
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+  # ---------------------------------------------------------------
+  # Expo web frontend (static)
+  # ---------------------------------------------------------------
+  - type: web
+    name: mu3ic-web
+    runtime: static
+    buildCommand: cd app && npm ci && npx expo export -p web
+    staticPublishPath: app/dist
+    autoDeploy: true
+    envVars:
+      # The API origin the web build is baked against. This is Render's
+      # default hostname for the `mu3ic-api` service above. If that name
+      # was already taken globally Render appends a suffix — check the
+      # API service's URL in the dashboard after the first deploy and
+      # update this value (then redeploy mu3ic-web to re-bake it). Swap
+      # in a custom domain here if you add one. Always include https://.
+      - key: EXPO_PUBLIC_API_URL
+        value: https://mu3ic-api.onrender.com
+    routes:
+      # Expo Router is a client-side SPA: serve index.html for unknown paths.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /_expo/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

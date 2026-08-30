@@ -4,7 +4,9 @@ This document describes the project structure, ground rules, and initial scope. 
 
 ## What This Is
 
-A self-hosted music streaming application. Users upload their personal music library to a server they control and stream it from web, iOS, and Android clients.
+A music streaming application. Users upload their personal music library and stream it from web, iOS, and Android clients.
+
+> **Update (2026-08-28, Phase 8):** the product is moving from "self-hosted, run it on your own LAN" toward a hosted, multi-tenant **private-pilot "music locker"** — each user's library is private to them and only streams back to their own devices. This changes deployment, storage, and auth (see `docs/PHASE-8-deployment.md`, `docs/DECISIONS.md`, and `deploy/DEPLOYMENT.md`), but not the data model — per-user scoping has been in place since Phase 5. The ground rules and stack below still hold; the "LAN-only / filesystem storage / open registration" specifics are now the *dev* configuration.
 
 This is also a learning project. The two goals are equally weighted:
 1. Ship a working product
@@ -72,6 +74,8 @@ server/
 |---|---|---|
 | `github.com/jackc/pgx/v5` (as `database/sql` driver via `pgx/v5/stdlib`) | PostgreSQL driver | stdlib has no Postgres driver; pgx is the maintained standard (`lib/pq` is in maintenance mode) |
 | `github.com/dhowden/tag` | Audio metadata extraction | Phase 2 only — do not include in the initial scaffold |
+| `github.com/golang-jwt/jwt/v5`, `golang.org/x/crypto` (bcrypt) | Auth tokens + password hashing | Phase 5 — security-sensitive code you don't want to hand-roll |
+| `github.com/minio/minio-go/v7` | Cloudflare R2 (S3 API) client | Phase 8 — object storage backend; lighter than `aws-sdk-go-v2`, and SigV4 signing isn't code to own |
 
 That's it. No web frameworks, no ORM, no config/env libraries, no logging libraries.
 
@@ -129,6 +133,8 @@ Build only the following, end to end:
 5. **Client:** Single screen listing tracks; tapping a track plays it via `expo-audio`.
 
 ### Explicitly Deferred (do not scaffold, stub, or "prepare for")
+
+_Scaffold-era list. Most items below have since shipped in their own phases (auth = 5, playlists/search = 6); MinIO/S3 storage and deployment config landed in Phase 8 (as Cloudflare R2 + `deploy/`). `docs/STATUS.md` is the current picture._
 
 - Authentication
 - Metadata extraction (Phase 2 — `dhowden/tag`)

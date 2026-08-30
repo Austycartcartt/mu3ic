@@ -1,6 +1,7 @@
 package library
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -12,14 +13,16 @@ import (
 	"github.com/Austycartcartt/mu3ic/server/internal/store"
 )
 
-// IngestFile takes a file already on local disk, extracts its metadata,
-// moves it into the library under a new UUID storage key, and inserts a
-// track row owned by userID. It is the single entry point for adding
-// music to the library — the HTTP upload handler is one caller (passing
-// the authenticated user); a future watch-folder scanner will be another
-// (and will need to decide which user a scanned file belongs to).
+// IngestFile takes a file already staged on local disk, extracts its
+// metadata, stores it under a new UUID storage key via storage, and
+// inserts a track row owned by userID. It is the single entry point for
+// adding music to the library — the HTTP upload handler is one caller
+// (passing the authenticated user); a future watch-folder scanner will be
+// another (and will need to decide which user a scanned file belongs to).
 // Contains no http.Request or other HTTP types, so it's callable directly
-// from a test with just a path.
+// from a test with just a path. srcPath is not consumed (storage.Put
+// copies from it); the caller is responsible for removing the staged
+// file.
 //
 // Overrides carries caller-supplied title/artist/album/albumArtist/
 // trackNumber values (e.g. from the upload preview screen's filename-parsed,
@@ -46,7 +49,7 @@ type Overrides struct {
 // signal) — used as the primary source for the stored mime type, since
 // content sniffing alone misclassifies several audio formats (see
 // resolveMimeType).
-func IngestFile(ctx context.Context, st *store.Store, cfg Config, userID int64, srcPath, originalFilename, declaredMimeType string, overrides Overrides) (store.Track, error) {
+func IngestFile(ctx context.Context, st *store.Store, storage Storage, userID int64, srcPath, originalFilename, declaredMimeType string, overrides Overrides) (store.Track, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return store.Track{}, fmt.Errorf("opening source file: %w", err)
@@ -117,19 +120,24 @@ func IngestFile(ctx context.Context, st *store.Store, cfg Config, userID int64, 
 		return store.Track{}, fmt.Errorf("generating storage key: %w", err)
 	}
 
-	destPath := filepath.Join(cfg.LibraryDir, storageKey)
-	if err := os.Rename(srcPath, destPath); err != nil {
-		return store.Track{}, fmt.Errorf("moving file into library: %w", err)
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return store.Track{}, fmt.Errorf("reopening source file: %w", err)
 	}
+	if err := storage.Put(ctx, storageKey, src, info.Size(), mimeType); err != nil {
+		src.Close()
+		return store.Track{}, fmt.Errorf("storing audio: %w", err)
+	}
+	src.Close()
 
-	// Artwork is a nice-to-have: a failure writing it shouldn't fail the
+	// Artwork is a nice-to-have: a failure storing it shouldn't fail the
 	// whole upload, consistent with ExtractMetadata's treatment of
 	// missing/unreadable tags as a normal case, not an error.
 	artworkExt := ""
 	if md.Artwork != nil {
-		artworkPath := filepath.Join(cfg.LibraryDir, storageKey+md.Artwork.Ext)
-		if err := os.WriteFile(artworkPath, md.Artwork.Data, 0o644); err != nil {
-			slog.Warn("writing artwork file", "storage_key", storageKey, "error", err)
+		artworkKey := storageKey + md.Artwork.Ext
+		if err := storage.Put(ctx, artworkKey, bytes.NewReader(md.Artwork.Data), int64(len(md.Artwork.Data)), ArtworkContentType(md.Artwork.Ext)); err != nil {
+			slog.Warn("storing artwork", "storage_key", storageKey, "error", err)
 		} else {
 			artworkExt = md.Artwork.Ext
 		}
@@ -149,10 +157,14 @@ func IngestFile(ctx context.Context, st *store.Store, cfg Config, userID int64, 
 		ArtworkExt:       artworkExt,
 	})
 	if err != nil {
-		os.Remove(destPath)
+		keys := []string{storageKey}
 		if artworkExt != "" {
-			os.Remove(filepath.Join(cfg.LibraryDir, storageKey+artworkExt))
+			keys = append(keys, storageKey+artworkExt)
 		}
+		// Best-effort cleanup on a fresh context: ctx may itself be what
+		// failed the insert (e.g. a cancellation), and the objects still
+		// need removing.
+		storage.Delete(context.WithoutCancel(ctx), keys...)
 		return store.Track{}, fmt.Errorf("inserting track: %w", err)
 	}
 

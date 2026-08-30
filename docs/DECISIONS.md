@@ -137,3 +137,80 @@ Append-only log. Add a new entry per decision; don't edit past entries except to
 **Frontend:** `usePlayer` gained a queue — `play(track, uri)` became `playQueue(tracks, startIndex)`, with `playNext`/`playPrevious` and auto-advance on `expo-audio`'s `status.didJustFinish` (ref-gated to fire once per finish). This also makes the Songs/album/artist screens play through their list in context, not just the one tapped track. Reorder UI is an "edit mode" with ▲/▼ move buttons, **not** drag-and-drop: `react-native-draggable-flatlist` would be a new dependency PROJECT.md forbids without justification, and ▲/▼ is fine for short playlists. Search is a dedicated 5th tab. `playlists.tsx` became a `playlists/` folder (`_layout` + `index` + `[id]`), matching `albums/`. `PlaylistNameModal` is a cross-platform text-prompt (RN's `Alert.prompt` is iOS-only).
 
 **Trade-offs:** No duplicate tracks per playlist (composite PK) — revisit if ever wanted. Search quality is capped at substring matching — no typo tolerance or relevance ordering; `pg_trgm`/`tsvector` is the upgrade path if the library outgrows it. Reorder isn't drag-and-drop, so reordering a long playlist is many taps. The playback queue is in-memory only: it doesn't survive an app restart, and there's no "up next" view, shuffle, or repeat yet. `ReorderPlaylist` issues one `UPDATE` per row in a loop inside the transaction (fine at personal scale; a single `UPDATE … FROM (VALUES …)` would scale better).
+
+---
+
+## Skip Phase 7 bulk import (watch folder + rclone + dedup)
+
+**Date:** 2026-08-28 · **Category:** Scope · **Status:** Decided (Phase 7 skipped)
+
+**Rationale:** Phase 7's remaining scope — a server-side watch-folder scan endpoint, a `009_track_content_hash` migration for duplicate detection, an `import-from-rclone.sh` wrapper, and the ingest/store plumbing for both — was implemented as WIP and then abandoned. It's a large, stateful addition (scan endpoint, content hashing, dedup semantics, an external `rclone` dependency and script) whose only real job is a one-time migration of an existing library into the app, which a plain `curl` loop against the existing `POST /api/tracks` upload endpoint already handles well enough. The value-to-complexity ratio didn't hold up. The filename-heuristic upload preview and web folder picker that also came out of this phase (see the 2026-08-21 entries above) shipped separately, are on `main`, and are unaffected.
+
+**Trade-offs:** No built-in "point the server at a folder / cloud remote and sync" import — bulk loading stays a manual scripted upload against the public endpoint. The WIP is preserved on the `bulk-upload` branch (commit `de82a1c`) as a reference if this is ever revived; it is not merged, so migration `009` and `tracks.content_hash` do **not** exist on `main`. Any future bulk-import work should re-scope from scratch rather than resurrect the branch wholesale.
+
+---
+
+## Product pivot: private-pilot "music locker" SaaS (Phase 8)
+
+**Date:** 2026-08-28 · **Category:** Scope / Product · **Status:** Decided (Phase 8)
+
+**Rationale:** mu3ic is moving from a LAN-only personal app ("a server you control") toward a commercial multi-tenant service: each user uploads *their own* library, it stays private to them, and it only ever streams back to *that same user's* devices — the personal-use framing that keeps a storage/streaming locker clear of distribution/copyright problems. The multi-user primitives already exist from Phase 5 (every store method scoped by `user_id`; another user's track id is an indistinguishable 404), so this is an infrastructure and hardening effort, not a data-model change. Phase 8 deliberately covers **only private-pilot infrastructure** — enough to onboard invited users. Billing, storage quotas, marketing site, and legal/policy pages are explicitly later phases so Phase 8 stays shippable.
+
+**Trade-offs:** The `PROJECT.md` "self-hosted, personal-scale, LAN" framing is now aspirational-past for the hosted deployment (the local `fs` storage backend is effectively dev-only). Single VPS + single Postgres means no HA yet. Open questions punted to later phases: per-user quota enforcement, payment, account lifecycle emails, ToS/DMCA, data export/deletion.
+
+---
+
+## Object storage: Cloudflare R2 behind `library.Storage`, presigned-redirect streaming
+
+**Date:** 2026-08-28 · **Category:** Storage · **Status:** Decided (Phase 8), supersedes "Storage is read-only" note in the 2026-07-16 UUID-keys entry
+
+**Rationale:** A hosted music locker can't keep every user's library on one VPS disk. Added a second `library.Storage` backend for **Cloudflare R2** (S3-compatible, and — decisive for a streaming product — zero egress fees), selected by `STORAGE_BACKEND=fs|r2`. This required reversing the earlier "Storage is read-only, writes go through `os.Rename` in `IngestFile`" decision: `Storage` now has `Put`/`Delete`, and `IngestFile` calls `storage.Put`. The local `FileStorage` keeps its temp-file-then-atomic-rename semantics internally; `R2Storage` does a `PutObject`.
+
+Streaming uses an **optional `Presigner` capability**: when the backend implements it (R2), `handleStream`/`handleArtwork` issue a `302` to a short-lived presigned GET URL (`STREAM_URL_TTL`, default 15m) with `response-content-type` pinned to the DB mime type — track bytes never transit the app server, and Range requests go straight to R2. When it doesn't (filesystem), the handlers fall back to `http.ServeContent` exactly as before. No schema change: `storage_key` stays a bare UUID, artwork key is `storage_key + artwork_ext`.
+
+**Dependency:** `github.com/minio/minio-go/v7` for the S3 client. Chosen over `aws-sdk-go-v2` (roughly doubles the project's module count — disproportionate under PROJECT.md's "justify every dependency") and over a hand-rolled SigV4 signer (don't want to own crypto-signing code; the Phase 5 entry set the precedent of waiving stdlib-first for security-sensitive code). `minio-go` is a single primary import with a small transitive set and is well-tested against R2.
+
+**Trade-offs:** A new dependency and its transitive deps. Presigned-redirect means a leaked stream URL is usable by anyone until it expires (bounded, ≤15m, and narrower than the existing `?token=` exposure). `R2Storage.Open` (the non-presign read path, kept for tooling/parity) does a `StatObject` round-trip to surface a missing key as `fs.ErrNotExist`. R2 Put/Open/Delete are covered by manual verification against a real bucket, not unit tests (offline tests cover interface behavior, `FileStorage`, and presigned-URL shape).
+
+---
+
+## Deploy topology: single VPS, docker compose, Caddy TLS, external object storage
+
+**Date:** 2026-08-28 · **Category:** Deployment · **Status:** Decided (Phase 8)
+
+**Rationale:** For a private pilot, one Linux VPS running `docker compose` is the lowest-moving-parts option that still meets the bar (HTTPS, multi-tenant, backups, monitoring) and matches the project's minimalist ethos better than a PaaS. `deploy/docker-compose.yml`: `db` (Postgres, no published port), `server` (distroless-static image, migrations baked in, auth via `.env`), `caddy` (ports 80/443, automatic Let's Encrypt, serves the `expo export -p web` static bundle with SPA fallback, reverse-proxies `/api/*`, and strips `?token=` from its access log). Object bytes are in R2, so the server needs no persistent volume — just a tmpfs for upload staging. Secrets are a `chmod 600` `deploy/.env` (a real secrets manager is deferred). Backups are host-cron `pg_dump`; audio durability is R2 bucket versioning.
+
+**Trade-offs:** No CI/CD — deploy is `git pull && docker compose up -d --build` on the box. No HA, no read replica, no horizontal scaling. The Caddy image builds the web bundle via a Node stage (heavier image, but keeps Node off the VPS and makes `up --build` reproducible); a host-built bind-mount is documented as the lighter alternative.
+
+---
+
+## Auth hardening for a public deployment (Phase 8)
+
+**Date:** 2026-08-28 · **Category:** Auth · **Status:** Decided (Phase 8), addresses the deploy-checklist items in the 2026-08-27 Phase 5 entry
+
+**Rationale:** The Phase 5 entry flagged open registration and an unset `JWT_SECRET` as things "the deploy checklist must cover." Phase 8 handles them in code rather than a checklist:
+- **`JWT_SECRET` is fatal** — the server `os.Exit(1)`s if it's unset, equal to the old dev default, or shorter than 32 chars (was a warn-and-continue). `start.sh` exports a stable dev value so local workflow is unchanged.
+- **Registration is closed by default.** `REGISTRATION_INVITE_CODE` (constant-time compared) gates new accounts; `REGISTRATION_OPEN=true` is a staging-only escape hatch. A zero-users **first-run bootstrap** (`store.CreateFirstUser`, a conditional `INSERT ... WHERE NOT EXISTS`) lets a fresh deployment create its first account with no code, then closes. No new table.
+- **Auth endpoints are rate-limited** per client IP — a hand-rolled token bucket (`~1 req/s`, burst 5, idle sweep), wrapping only `/api/auth/register` and `/api/auth/login`. Hand-rolled rather than `golang.org/x/time/rate` to avoid a dependency for ~60 lines. Client IP comes from `X-Real-IP` only when `TRUST_PROXY=true` (Caddy sets it, overwriting so it can't be spoofed); otherwise from `RemoteAddr`.
+- **`/api/health` does a DB ping** (2s timeout) → `503 {"status":"degraded"}` on failure, so uptime monitoring is meaningful.
+- **Request IDs** — every request gets a short `X-Request-Id`, logged alongside method/path/status/duration (status capture is new too).
+
+`NewServer`'s positional signature became `api.Options` to carry the new knobs (registration policy, trust-proxy, presigned-URL TTL).
+
+**Trade-offs:** Still no email verification, password reset, or short-lived/refresh tokens — the full 24h JWT still rides `?token=` on stream URLs (Phase 8 narrows the exposure with Caddy log redaction and ≤15m presigned R2 URLs, but doesn't eliminate token-in-URL). The invite code is a single shared secret, not per-user or emailed. Rate-limit state is in-memory per process (fine for a single-server pilot).
+
+---
+
+## Production moves to Render + Neon (Phase 8)
+
+**Date:** 2026-08-29 · **Category:** Deployment / Storage · **Status:** Decided (Phase 8), supersedes the single-VPS topology in the two 2026-08-28 Phase 8 deploy/storage entries
+
+**Rationale:** Production now runs the Go API on **Render** (managed platform: builds `server/Dockerfile`, terminates TLS, injects `PORT`) with **Neon** as the entire data layer — Lakebase Postgres for the metadata DB and Neon Object Storage (S3-compatible) for audio/artwork bytes — instead of a self-managed single VPS running Postgres + Caddy + Cloudflare R2. This is the recommended Neon shape: the app platform owns the runtime, Neon is the data it talks to; nothing stateful runs on the app host. Neon Object Storage branches *with* the database, so a Neon branch of `production` yields a consistent copy-on-write snapshot of rows and the objects they reference — useful for future staging/restore branches. Everything is in one Neon project (`sweet-star-53712486`, org Austin), branch `production`, region **`us-east-2`** (mandatory: Object Storage's public beta serves only that region; Render's `ohio` region is the same AWS region).
+
+- **Render blueprint:** `render.yaml` at the repo root declares `mu3ic-api` (Docker web service from `server/Dockerfile`, `healthCheckPath: /api/health`) and `mu3ic-web` (the `expo export -p web` bundle as a static site with an SPA rewrite). Non-secret config is inlined; secrets (`DATABASE_URL`, `JWT_SECRET`, `REGISTRATION_INVITE_CODE`, `AWS_ACCESS_KEY_ID/SECRET`) are `sync: false` and pasted on first deploy. `DATA_DIR=/tmp/mu3ic` because Render's distroless-nonroot container can't write outside `/tmp` — that's only upload staging, the bytes go straight to Neon.
+- **Postgres:** `DATABASE_URL` is the Neon branch's **direct (non-`-pooler`) host**. `store.RunMigrations` takes a session-level `pg_advisory_lock` on startup, which PgBouncer transaction pooling can't hold safely; a single long-lived server also gains nothing from the pooler. The pooled URL is kept commented in `deploy/.env` for any future serverless path.
+- **Object storage:** new `library.NeonStorage` (`internal/library/neon_storage.go`), selected by `STORAGE_BACKEND=neon`. It's a near-twin of `R2Storage` — both are `minio-go` S3 clients with presigned-GET streaming — kept as a separate type rather than a shared impl because the constructors genuinely differ: Neon requires **path-style addressing** (`BucketLookupPath`) and signs with a **real region** (`AWS_REGION`, default `us-east-2`), R2 uses virtual-host style and the pseudo-region `auto`. Config reads the `AWS_*` names `neon env pull` writes, plus `NEON_STORAGE_BUCKET` (Neon doesn't inject the bucket name). No `library.Storage` interface change; the stream/artwork handlers' existing `Presigner` type-assertion picks up the 302 path for free.
+- **The `deploy/` single-VPS stack** (`docker-compose.yml` with a Postgres container + `Caddyfile` + `backup.sh` + `DEPLOYMENT.md`) is left in the tree unchanged as a superseded alternative; it still describes the R2 + local-Postgres path. `deploy/.env` is repurposed as the (gitignored) list of values to paste into Render.
+- **Tooling:** `neon`/`neon-postgres`/`neon-object-storage` agent-skills installed under `.agents/skills/`; Neon CLI authenticated; Neon MCP server added to Claude Code (local scope).
+
+**Trade-offs:** Object Storage and the region lock are a public-beta dependency — if it regresses, `STORAGE_BACKEND=r2` and the `R2_*` code path are still present as the fallback. `neon env pull` rotates the object-storage credential on every run, so re-pulling after go-live means updating the Render service with the new key. The Neon Free plan (`free_v3`) caps history retention at ~6h and doesn't serve the AI Gateway (enabled on the project but unused — its `NEON_AI_GATEWAY_*` vars are ignored); Render's free web tier spins down after 15 min idle (cold start on the next request, and the `/api/health` DB ping pays the Neon resume cost too) — bump `mu3ic-api` to a paid instance for always-on. There is no CI and no automated DB backup on this path yet: Render redeploys on push, and Neon's built-in ~6h restore window is the only safety net until a scheduled `pg_dump` (or a paid Neon plan) is added. `NeonStorage`'s network paths (Put/Open/Delete) are covered by a manual live round-trip against the real `mu3ic-audio` bucket, not unit tests; offline tests cover construction validation, the default-region fallback, and presigned-URL shape (path-style, `us-east-2` credential scope). The web client fetching presigned Neon URLs cross-origin needs a bucket CORS rule (`PutBucketCors`, `GET,HEAD` from the site origin) — not yet set (no deploy yet). `render.yaml` pins `EXPO_PUBLIC_API_URL` to Render's default `https://mu3ic-api.onrender.com`, so the web origin will be `https://mu3ic-web.onrender.com` barring a name collision, making the CORS rule a one-step post-deploy config. Local dev is unchanged — it still uses the repo-root `docker-compose.yml` Postgres and the `fs` storage backend.

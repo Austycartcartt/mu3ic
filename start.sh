@@ -5,6 +5,11 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# The server now refuses to start without a real JWT_SECRET (≥32 chars,
+# not the old dev default). Provide a stable local one so dev logins
+# survive restarts; override by exporting your own before running this.
+export JWT_SECRET="${JWT_SECRET:-dev-secret-not-for-production-0123456789abcdef}"
+
 docker compose up -d
 
 pids=()

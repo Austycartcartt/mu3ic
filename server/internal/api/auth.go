@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,13 @@ type credentials struct {
 	Password string `json:"password"`
 }
 
+// registerRequest is credentials plus the optional invite code required
+// when the deployment gates registration behind one.
+type registerRequest struct {
+	credentials
+	InviteCode string `json:"inviteCode"`
+}
+
 // authResponse is the shape returned by both register and login.
 type authResponse struct {
 	ID        int64     `json:"id"`
@@ -35,30 +43,51 @@ type authResponse struct {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	var creds credentials
-	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	creds.Email = strings.TrimSpace(strings.ToLower(creds.Email))
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
-	if !emailRE.MatchString(creds.Email) {
+	if !emailRE.MatchString(req.Email) {
 		writeJSONError(w, http.StatusBadRequest, "invalid email address")
 		return
 	}
-	if len(creds.Password) < minPasswordLen {
+	if len(req.Password) < minPasswordLen {
 		writeJSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
 
-	hash, err := auth.HashPassword(creds.Password)
+	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		s.logger.Error("hashing password", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to create account")
 		return
 	}
 
-	user, err := s.store.CreateUser(r.Context(), creds.Email, hash)
+	// Registration modes, in order of precedence:
+	//   1. Open        — anyone may register (staging/dev only).
+	//   2. Invite code — the request must carry a matching code.
+	//   3. Closed      — no new accounts, except the very first one, so a
+	//                    fresh deployment can be bootstrapped.
+	var user store.User
+	switch {
+	case s.registration.Open:
+		user, err = s.store.CreateUser(r.Context(), req.Email, hash)
+	case s.registration.InviteCode != "":
+		if subtle.ConstantTimeCompare([]byte(req.InviteCode), []byte(s.registration.InviteCode)) != 1 {
+			writeJSONError(w, http.StatusForbidden, "a valid invite code is required to register")
+			return
+		}
+		user, err = s.store.CreateUser(r.Context(), req.Email, hash)
+	default:
+		user, err = s.store.CreateFirstUser(r.Context(), req.Email, hash)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, http.StatusForbidden, "registration is closed")
+			return
+		}
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrEmailTaken) {
 			writeJSONError(w, http.StatusConflict, "email already registered")

@@ -1,9 +1,11 @@
 # mu3ic
 
-A self-hosted music streaming app. See [PROJECT.md](PROJECT.md) for the full spec.
+A music streaming app — upload your own library, stream it to your own devices. See [PROJECT.md](PROJECT.md) for the full spec. (Moving toward a hosted private-pilot "music locker" as of Phase 8.)
 
 - [`server/`](server/README.md) — Go backend
 - [`app/`](app/README.md) — Expo (React Native) client
+- [`render.yaml`](render.yaml) — production deployment: Go API + Expo web on Render, data layer (Postgres + object storage) on Neon
+- [`deploy/`](deploy/DEPLOYMENT.md) — superseded single-VPS deploy (docker compose, Caddy, local Postgres, Cloudflare R2); kept as an alternative
 - [`docs/STATUS.md`](docs/STATUS.md) — current build phase and what's next
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architecture decisions log
 

@@ -1,0 +1,42 @@
+{
+	# ACME account email for Let's Encrypt notices. Optional but recommended.
+	email {$ACME_EMAIL}
+}
+
+# SITE_ADDRESS is the public hostname, e.g. music.example.com. A real
+# domain on public ports 80/443 makes Caddy provision and renew a
+# Let's Encrypt certificate automatically.
+{$SITE_ADDRESS} {
+	encode gzip zstd
+
+	# API: everything under /api/* is proxied to the Go server. X-Real-IP
+	# is set from the actual remote host so the server's auth rate limiter
+	# keys on the client, not on Caddy. Caddy overwrites (not appends) the
+	# header, so a client can't spoof it.
+	@api path /api/*
+	handle @api {
+		reverse_proxy server:8080 {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# Everything else: the exported Expo web app. try_files falls back to
+	# index.html so a hard refresh on a client-side route (/albums/{id},
+	# /playlists/{id}) still loads the SPA instead of 404ing.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Access log with the ?token= query param stripped, so the streaming
+	# token never lands in the logs.
+	log {
+		output stdout
+		format filter {
+			request>uri query {
+				delete token
+			}
+		}
+	}
+}
