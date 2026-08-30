@@ -4,7 +4,7 @@ A music streaming app — upload your own library, stream it to your own devices
 
 - [`server/`](server/README.md) — Go backend
 - [`app/`](app/README.md) — Expo (React Native) client
-- [`render.yaml`](render.yaml) — production deployment: Go API + Expo web on Render, data layer (Postgres + object storage) on Neon
+- [`docs/DEPLOY-RENDER-NEON.md`](docs/DEPLOY-RENDER-NEON.md) — **step-by-step production deploy**: Go API + Expo web on Render, data layer (Postgres + object storage) on Neon. Blueprint is [`render.yaml`](render.yaml).
 - [`deploy/`](deploy/DEPLOYMENT.md) — superseded single-VPS deploy (docker compose, Caddy, local Postgres, Cloudflare R2); kept as an alternative
 - [`docs/STATUS.md`](docs/STATUS.md) — current build phase and what's next
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architecture decisions log

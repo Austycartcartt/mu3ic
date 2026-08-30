@@ -1,10 +1,11 @@
 # Deploying mu3ic (private pilot)
 
 > **Superseded (2026-08-29).** Production now runs on **Render + Neon** —
-> see the repo-root `render.yaml` and the 2026-08-29 entry in
-> `docs/DECISIONS.md` / `docs/PHASE-8-deployment.md`. This single-VPS +
-> Caddy + local-Postgres + Cloudflare R2 walkthrough is kept as an
-> alternative and is no longer the path in use.
+> follow [`docs/DEPLOY-RENDER-NEON.md`](../docs/DEPLOY-RENDER-NEON.md)
+> (blueprint: repo-root `render.yaml`; rationale: the 2026-08-29 entry in
+> `docs/DECISIONS.md`). This single-VPS + Caddy + local-Postgres +
+> Cloudflare R2 walkthrough is kept as an alternative and is no longer the
+> path in use.
 
 The pilot runs on **one Linux VPS** with `docker compose`: Postgres, the Go
 API, and Caddy (TLS + static web + reverse proxy). Uploaded audio and

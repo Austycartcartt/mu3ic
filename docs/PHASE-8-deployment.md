@@ -36,6 +36,7 @@ and email flows are **later phases** on the road to a full public launch
   `storage_key + artwork_ext`.
 
 ### Hosting (Render + Neon, as of 2026-08-29)
+- Step-by-step runbook: [`DEPLOY-RENDER-NEON.md`](DEPLOY-RENDER-NEON.md).
 - The data layer is entirely on **Neon** (project `sweet-star-53712486`,
   branch `production`, region `us-east-2`): Lakebase Postgres + Neon
   Object Storage. Nothing stateful runs on the app host.

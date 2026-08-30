@@ -12,6 +12,9 @@ app/.env.local
 # Deployment secrets / local backup artifacts
 deploy/.env
 deploy/backups/
+# `neon env pull` writes live branch credentials into one of these at the repo root
+/.env
+/.env.local
 
 # Editors / OS
 .DS_Store
